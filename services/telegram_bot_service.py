@@ -116,7 +116,7 @@ class TelegramBotService:
             return None
 
     async def _generate_intraday_chart(
-        self, symbol: str, exchange: str, interval: str, days: int, telegram_id: int
+            self, symbol: str, exchange: str, interval: str, days: int, telegram_id: int
     ) -> bytes | None:
         """Generate intraday chart with specified interval"""
         try:
@@ -170,7 +170,7 @@ class TelegramBotService:
 
             # Check if we got data
             if history_data is None or (
-                isinstance(history_data, pd.DataFrame) and history_data.empty
+                    isinstance(history_data, pd.DataFrame) and history_data.empty
             ):
                 logger.error("No data available for chart generation")
                 return None
@@ -282,7 +282,7 @@ class TelegramBotService:
             return None
 
     async def _generate_daily_chart(
-        self, symbol: str, exchange: str, interval: str, days: int, telegram_id: int
+            self, symbol: str, exchange: str, interval: str, days: int, telegram_id: int
     ) -> bytes | None:
         """Generate daily chart with specified days"""
         try:
@@ -337,7 +337,7 @@ class TelegramBotService:
 
             # Check if we got data
             if history_data is None or (
-                isinstance(history_data, pd.DataFrame) and history_data.empty
+                    isinstance(history_data, pd.DataFrame) and history_data.empty
             ):
                 logger.error("No data available for chart generation")
                 return None
@@ -686,13 +686,13 @@ class TelegramBotService:
                 break
 
             except (
-                httpx.ConnectError,
-                httpx.NetworkError,
-                httpx.TimeoutException,
-                telegram.error.NetworkError,
+                    httpx.ConnectError,
+                    httpx.NetworkError,
+                    httpx.TimeoutException,
+                    telegram.error.NetworkError,
             ) as e:
                 retry_count += 1
-                delay = base_delay * (2**retry_count)  # Exponential backoff
+                delay = base_delay * (2 ** retry_count)  # Exponential backoff
                 logger.warning(
                     f"Network error while connecting to Telegram (attempt {retry_count}/{max_retries}): {type(e).__name__}"
                 )
@@ -717,9 +717,9 @@ class TelegramBotService:
 
         # Cleanup after the retry loop
         if (
-            self.application
-            and hasattr(self.application, "updater")
-            and self.application.updater.running
+                self.application
+                and hasattr(self.application, "updater")
+                and self.application.updater.running
         ):
             try:
                 await self.application.updater.stop()
@@ -905,14 +905,14 @@ class TelegramBotService:
                     data = test_response.get("data", {})
                     if isinstance(data, dict):
                         openalgo_username = (
-                            data.get("username") or data.get("user_id") or data.get("client_id")
+                                data.get("username") or data.get("user_id") or data.get("client_id")
                         )
                         if openalgo_username:
                             logger.info(f"Got username from funds response: {openalgo_username}")
 
                 # Log for debugging
                 logger.info(
-                    f"Linking Telegram user {user.id} (@{user.username}) with OpenAlgo username: '{openalgo_username}'"
+                    f"Linking Telegram user {user.id} (@{user.username}) with Zenxo username: '{openalgo_username}'"
                 )
 
                 # If we still can't get username, DON'T use telegram username with @
@@ -921,14 +921,14 @@ class TelegramBotService:
                     # Try to get from session or use telegram ID
                     openalgo_username = f"user_{user.id}"
                     logger.warning(
-                        f"Could not get OpenAlgo username, using fallback: {openalgo_username}"
+                        f"Could not get Zenxo username, using fallback: {openalgo_username}"
                     )
                 else:
-                    logger.info(f"Successfully retrieved OpenAlgo username: {openalgo_username}")
+                    logger.info(f"Successfully retrieved Zenxo username: {openalgo_username}")
 
                 create_or_update_telegram_user(
                     telegram_id=user.id,
-                    username=openalgo_username,  # Use the actual OpenAlgo username
+                    username=openalgo_username,  # Use the actual Zenxo username
                     telegram_username=user.username,
                     first_name=user.first_name,
                     last_name=user.last_name,
@@ -1002,9 +1002,9 @@ class TelegramBotService:
 
             # Get display name (prefer telegram_username, fallback to openalgo_username)
             display_name = (
-                telegram_user.get("telegram_username")
-                or telegram_user.get("openalgo_username")
-                or "N/A"
+                    telegram_user.get("telegram_username")
+                    or telegram_user.get("openalgo_username")
+                    or "N/A"
             )
             host_url = telegram_user.get("host_url") or "N/A"
 
@@ -1019,7 +1019,7 @@ class TelegramBotService:
             )
         else:
             await update.message.reply_text(
-                "❌ No linked account found.\nUse /link to connect your OpenAlgo account.",
+                "❌ No linked account found.\nUse /link to connect your Zenxo account.",
                 parse_mode=ParseMode.MARKDOWN,
             )
 
@@ -1037,7 +1037,7 @@ class TelegramBotService:
         # Get orderbook using SDK
         client = self._get_sdk_client(user.id)
         if not client:
-            await update.message.reply_text("❌ Failed to connect to OpenAlgo")
+            await update.message.reply_text("❌ Failed to connect to Zenxo")
             return
 
         loop = asyncio.get_event_loop()
@@ -1161,7 +1161,7 @@ class TelegramBotService:
         # Get tradebook using SDK
         client = self._get_sdk_client(user.id)
         if not client:
-            await update.message.reply_text("❌ Failed to connect to OpenAlgo")
+            await update.message.reply_text("❌ Failed to connect to Zenxo")
             return
 
         loop = asyncio.get_event_loop()
@@ -1245,7 +1245,7 @@ class TelegramBotService:
         # Get positions using SDK
         client = self._get_sdk_client(user.id)
         if not client:
-            await update.message.reply_text("❌ Failed to connect to OpenAlgo")
+            await update.message.reply_text("❌ Failed to connect to Zenxo")
             return
 
         loop = asyncio.get_event_loop()
@@ -1337,7 +1337,7 @@ class TelegramBotService:
         # Get holdings using SDK
         client = self._get_sdk_client(user.id)
         if not client:
-            await update.message.reply_text("❌ Failed to connect to OpenAlgo")
+            await update.message.reply_text("❌ Failed to connect to Zenxo")
             return
 
         loop = asyncio.get_event_loop()
@@ -1434,7 +1434,7 @@ class TelegramBotService:
         # Get funds using SDK
         client = self._get_sdk_client(user.id)
         if not client:
-            await update.message.reply_text("❌ Failed to connect to OpenAlgo")
+            await update.message.reply_text("❌ Failed to connect to Zenxo")
             return
 
         loop = asyncio.get_event_loop()
@@ -1490,7 +1490,7 @@ class TelegramBotService:
         # Get P&L from funds using SDK
         client = self._get_sdk_client(user.id)
         if not client:
-            await update.message.reply_text("❌ Failed to connect to OpenAlgo")
+            await update.message.reply_text("❌ Failed to connect to Zenxo")
             return
 
         loop = asyncio.get_event_loop()
@@ -1558,7 +1558,7 @@ class TelegramBotService:
         # Get quote using SDK
         client = self._get_sdk_client(user.id)
         if not client:
-            await update.message.reply_text("❌ Failed to connect to OpenAlgo")
+            await update.message.reply_text("❌ Failed to connect to Zenxo")
             return
 
         loop = asyncio.get_event_loop()
@@ -1753,7 +1753,7 @@ class TelegramBotService:
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         await update.message.reply_text(
-            "📱 *OpenAlgo Trading Menu*\nSelect an option below:",
+            "📱 *Zenxo Trading Menu*\nSelect an option below:",
             reply_markup=reply_markup,
             parse_mode=ParseMode.MARKDOWN,
         )
@@ -1952,7 +1952,7 @@ class TelegramBotService:
 
                 timestamp = datetime.now().strftime("%H:%M:%S")
                 await query.edit_message_text(
-                    f"📱 *OpenAlgo Trading Menu*\nSelect an option below:\n_Updated: {timestamp}_",
+                    f"📱 *Zenxo Trading Menu*\nSelect an option below:\n_Updated: {timestamp}_",
                     reply_markup=reply_markup,
                     parse_mode=ParseMode.MARKDOWN,
                 )
@@ -1971,7 +1971,7 @@ class TelegramBotService:
 
         client = self._get_sdk_client(user.id)
         if not client:
-            await context.bot.send_message(chat_id=chat_id, text="❌ Failed to connect to OpenAlgo")
+            await context.bot.send_message(chat_id=chat_id, text="❌ Failed to connect to Zenxo")
             return
 
         # Map callback data to API calls and formatters
