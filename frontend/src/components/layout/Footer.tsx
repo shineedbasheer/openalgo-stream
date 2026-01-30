@@ -34,17 +34,12 @@ export function Footer({ className }: FooterProps) {
           <div className="flex items-center gap-2">
             <span>Copyright 2026</span>
             <span className="hidden md:inline">|</span>
-            <a
-              href="https://www.openalgo.in"
-              className="text-primary hover:underline font-medium"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              www.openalgo.in
-            </a>
+            <span className="text-primary font-medium">
+              Zenxo
+            </span>
           </div>
           <span className="hidden md:inline">|</span>
-          <span className="text-center">Open Source Algo Platform for Everyone</span>
+          <span className="text-center">Advanced Algorithmic Trading Platform</span>
           <span className="hidden md:inline">|</span>
           {version && (
             <Badge variant="secondary" className="gap-1">
