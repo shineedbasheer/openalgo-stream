@@ -1,4 +1,4 @@
-import { BarChart3, BookOpen, LogOut, Menu, Moon, Sun, Zap } from 'lucide-react'
+import { BarChart3, LogOut, Menu, Moon, Sun, Zap } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -24,6 +24,12 @@ export function Navbar() {
   const [mobileOpen, setMobileOpen] = useState(false)
   const { mode, appMode, toggleMode, toggleAppMode, isTogglingMode } = useThemeStore()
   const { user, logout } = useAuthStore()
+
+  // Dynamic logo based on light/dark mode and app mode
+  const logoSrc =
+    mode === 'dark' || appMode === 'analyzer'
+      ? '/darkMode.png'
+      : '/whiteMode.jpeg'
 
   const handleLogout = async () => {
     try {
@@ -76,15 +82,10 @@ export function Navbar() {
                 className="flex items-center gap-2 px-2"
                 onClick={() => setMobileOpen(false)}
               >
-                <img 
-                  src={mode === 'dark' ? '/logo-light.png' : '/logo-dark.png'} 
-                  alt="Zenxo" 
-                  className="h-8 w-8" 
-                />
-                <span className="font-semibold">Zenxo</span>
+                <img src={logoSrc} alt="Zenxo" className="h-8 w-20" />
+                {/* <span className="font-semibold">OpenAlgo</span> */}
               </Link>
               <nav className="flex flex-col gap-1">
-                {/* Show secondary items not in bottom nav */}
                 {mobileSheetItems.map((item) => (
                   <Link
                     key={item.href}
@@ -108,12 +109,8 @@ export function Navbar() {
 
         {/* Logo */}
         <Link to="/dashboard" className="flex items-center gap-2 mr-6">
-          <img 
-            src={mode === 'dark' ? '/logo-light.png' : '/logo-dark.png'} 
-            alt="Zenxo" 
-            className="h-8 w-8" 
-          />
-          <span className="hidden font-semibold sm:inline-block">Zenxo</span>
+          <img src={logoSrc} alt="Zenxo" className="h-8 w-20" />
+          {/* <span className="hidden font-semibold sm:inline-block">zenxo</span> */}
         </Link>
 
         {/* Desktop Navigation */}
@@ -214,7 +211,7 @@ export function Navbar() {
                   {item.label}
                 </DropdownMenuItem>
               ))}
-              <DropdownMenuItem asChild>
+              {/* <DropdownMenuItem asChild>
                 <a
                   href="https://docs.openalgo.in"
                   target="_blank"
@@ -224,7 +221,7 @@ export function Navbar() {
                   <BookOpen className="h-4 w-4" />
                   Docs
                 </a>
-              </DropdownMenuItem>
+              </DropdownMenuItem> */}
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 onClick={handleLogout}

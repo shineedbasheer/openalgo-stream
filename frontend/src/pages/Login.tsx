@@ -1,13 +1,14 @@
-import { Eye, EyeOff, Github, Info, Loader2, LogIn, MessageCircle } from 'lucide-react'
+import { Eye, EyeOff, Loader2, LogIn } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useAuthStore } from '@/stores/authStore'
+import { useThemeStore } from '@/stores/themeStore'
 
 export default function Login() {
   const navigate = useNavigate()
@@ -18,6 +19,11 @@ export default function Login() {
   const [isLoading, setIsLoading] = useState(false)
   const [isCheckingSetup, setIsCheckingSetup] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const { mode } = useThemeStore()
+
+  // Dynamic logo based on light/dark mode
+  const logoSrc = mode === 'dark' ? '/darkMode.png' : '/whiteMode.jpeg'
+
 
   // Check if setup is required or already logged in on page load
   useEffect(() => {
@@ -154,10 +160,10 @@ export default function Login() {
           <Card className="w-full max-w-md order-1 lg:order-2 shadow-xl">
             <CardHeader className="text-center">
               <div className="flex justify-center mb-4">
-                <img src="/logo-dark.png" alt="Zenxo" className="h-20 w-20" />
+                <img src={logoSrc} alt="Zenxo" className="h-8 w-20" />
               </div>
               <CardTitle className="text-2xl">Welcome Back</CardTitle>
-              <CardDescription>Sign in to your Zenxo account</CardDescription>
+              <CardDescription>Sign in to your Zenxo trading account</CardDescription>
             </CardHeader>
             <CardContent>
               <form onSubmit={handleSubmit} className="space-y-4">
@@ -247,15 +253,15 @@ export default function Login() {
               trading strategies.
             </p>
 
-            <Alert className="mb-6">
+            {/* <Alert className="mb-6">
               <Info className="h-4 w-4" />
               <AlertTitle>First Time User?</AlertTitle>
               <AlertDescription>
                 Contact your administrator to set up your account.
               </AlertDescription>
-            </Alert>
+            </Alert> */}
 
-            <div className="flex justify-center lg:justify-start gap-4">
+            {/* <div className="flex justify-center lg:justify-start gap-4">
               <Button variant="outline" asChild>
                 <a
                   href="https://github.com/marketcalls/openalgo"
@@ -278,7 +284,7 @@ export default function Login() {
                   Discord
                 </a>
               </Button>
-            </div>
+            </div> */}
           </div>
         </div>
       </div>

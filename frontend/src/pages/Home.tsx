@@ -1,11 +1,6 @@
 import {
-  BookOpen,
-  ClipboardList,
-  Download,
-  HelpCircle,
   LogIn,
   Menu,
-  MessageCircle,
   Moon,
   Sun,
 } from 'lucide-react'
@@ -20,13 +15,8 @@ export default function Home() {
   const { mode, toggleMode } = useThemeStore()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
-  const navLinks = [
-    { href: '/', label: 'Home', internal: true },
-    { href: '/faq', label: 'FAQ', internal: true },
-    { href: 'https://openalgo.in/discord', label: 'Community', internal: false },
-    { href: 'https://openalgo.in/roadmap', label: 'Roadmap', internal: false },
-    { href: 'https://docs.openalgo.in', label: 'Docs', internal: false },
-  ]
+  // Dynamic logo based on light/dark mode
+  const logoSrc = mode === 'dark' ? '/darkMode.png' : '/whiteMode.jpeg'
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -44,11 +34,11 @@ export default function Home() {
               </SheetTrigger>
               <SheetContent side="left" className="w-80">
                 <div className="flex items-center gap-2 mb-8">
-                  <img src="/logo.png" alt="OpenAlgo" className="h-8 w-8" />
-                  <span className="text-xl font-semibold">OpenAlgo</span>
+                  <img src={logoSrc} alt="zenxo" className="h-8 w-20" />
+                  {/* <span className="text-xl font-semibold">Zenxo</span> */}
                 </div>
                 <div className="flex flex-col gap-2">
-                  <Link
+                  {/* <Link
                     to="/"
                     className="flex items-center gap-2 px-4 py-2 rounded-md hover:bg-accent"
                     onClick={() => setMobileMenuOpen(false)}
@@ -111,41 +101,27 @@ export default function Home() {
                   >
                     <BookOpen className="h-5 w-5" />
                     Docs
-                  </a>
+                  </a> */}
                 </div>
               </SheetContent>
             </Sheet>
 
             <Link to="/" className="flex items-center gap-2">
-              <img src="/logo.png" alt="OpenAlgo" className="h-8 w-8" />
-              <span className="text-xl font-bold hidden sm:inline">OpenAlgo</span>
+              <img src={logoSrc} alt="zenxo" className="h-8 w-20" />
+              {/* <span className="text-xl font-bold hidden sm:inline">Zenxo</span> */}
             </Link>
           </div>
 
           {/* Desktop Navigation */}
           <div className="hidden lg:flex items-center gap-1">
-            {navLinks.map((link) =>
-              link.internal ? (
-                <Link key={link.href} to={link.href}>
-                  <Button variant="ghost" size="sm">
-                    {link.label}
-                  </Button>
-                </Link>
-              ) : (
-                <a key={link.href} href={link.href} target="_blank" rel="noopener noreferrer">
-                  <Button variant="ghost" size="sm">
-                    {link.label}
-                  </Button>
-                </a>
-              )
-            )}
+        
           </div>
 
           {/* Right side */}
           <div className="flex items-center gap-2">
-            <Link to="/download">
+            {/* <Link to="/download">
               <Button size="sm">Download</Button>
-            </Link>
+            </Link> */}
             <Button
               variant="ghost"
               size="icon"
@@ -166,11 +142,11 @@ export default function Home() {
               Your Personal <span className="text-primary">Algo Trading</span>{' '}
               <span className="text-primary">Platform</span>
             </h1>
-            <p className="text-xl mb-8 text-muted-foreground">
+            {/* <p className="text-xl mb-8 text-muted-foreground">
               Connect your algo strategies and run from any platform - Amibroker, TradingView,
               GoCharting, N8N, Python, GO, NodeJs, ChartInk, MetaTrader, Excel, or Google Sheets.
               And Receive your Strategy Alerts to Telegram.
-            </p>
+            </p> */}
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <Button size="lg" asChild>
                 <Link to="/login">
@@ -178,12 +154,12 @@ export default function Home() {
                   Login
                 </Link>
               </Button>
-              <Button size="lg" variant="outline" asChild>
+              {/* <Button size="lg" variant="outline" asChild>
                 <Link to="/download">
                   <Download className="mr-2 h-5 w-5" />
                   Download
                 </Link>
-              </Button>
+              </Button> */}
             </div>
           </div>
         </div>
