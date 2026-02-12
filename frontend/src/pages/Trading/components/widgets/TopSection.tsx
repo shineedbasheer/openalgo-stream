@@ -509,17 +509,16 @@ const TopSection: React.FC<TopSectionProps> = ({
                         onClick={() => {
                             // Handle exit all
                         }}
-                        className={`px-4 py-2 rounded-lg text-xs font-black uppercase tracking-wider transition-all flex items-center gap-2 border-2 ${darkMode
-                            ? 'bg-gradient-to-br from-orange-600 via-orange-700 to-red-700 hover:from-orange-700 hover:via-orange-800 hover:to-red-800 text-white border-orange-400 shadow-lg shadow-orange-500/50'
-                            : 'bg-gradient-to-br from-orange-500 via-orange-600 to-red-600 hover:from-orange-600 hover:via-orange-700 hover:to-red-700 text-white border-orange-300 shadow-lg shadow-orange-400/50'
-                            } transform hover:scale-110 active:scale-95 animate-pulse`}
-                        title="⚠️ EXIT ALL POSITIONS"
+                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold uppercase tracking-wider transition-colors flex items-center gap-1.5 ${darkMode
+                            ? 'bg-orange-600 hover:bg-orange-700 text-white'
+                            : 'bg-orange-500 hover:bg-orange-600 text-white'
+                            }`}
+                        title="Exit All Positions"
                     >
-                        <svg className="w-4 h-4 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                             <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
                         </svg>
-                        <span className="font-black">EXIT ALL</span>
-                        <span className="text-[10px] font-bold px-1.5 py-0.5 bg-white/20 rounded">⚠️</span>
+                        <span>EXIT ALL</span>
                     </button>
 
                     {/* Stop All Button */}
@@ -527,17 +526,16 @@ const TopSection: React.FC<TopSectionProps> = ({
                         onClick={() => {
                             // Handle stop all
                         }}
-                        className={`px-4 py-2 rounded-lg text-xs font-black uppercase tracking-wider transition-all flex items-center gap-2 border-2 ${darkMode
-                            ? 'bg-gradient-to-br from-red-600 via-red-700 to-red-900 hover:from-red-700 hover:via-red-800 hover:to-black text-white border-red-400 shadow-lg shadow-red-500/50'
-                            : 'bg-gradient-to-br from-red-500 via-red-600 to-red-800 hover:from-red-600 hover:via-red-700 hover:to-red-900 text-white border-red-300 shadow-lg shadow-red-400/50'
-                            } transform hover:scale-110 active:scale-95 animate-pulse`}
-                        title="🛑 STOP ALL STRATEGIES"
+                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold uppercase tracking-wider transition-colors flex items-center gap-1.5 ${darkMode
+                            ? 'bg-red-600 hover:bg-red-700 text-white'
+                            : 'bg-red-500 hover:bg-red-600 text-white'
+                            }`}
+                        title="Stop All Strategies"
                     >
-                        <svg className="w-4 h-4 animate-pulse" fill="currentColor" viewBox="0 0 20 20">
+                        <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
                             <rect x="3" y="3" width="14" height="14" rx="2" />
                         </svg>
-                        <span className="font-black">STOP ALL</span>
-                        <span className="text-[10px] font-bold px-1.5 py-0.5 bg-white/20 rounded">🛑</span>
+                        <span>STOP ALL</span>
                     </button>
                 </div>
             </div>
