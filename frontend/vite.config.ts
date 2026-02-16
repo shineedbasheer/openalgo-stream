@@ -29,6 +29,10 @@ export default defineConfig({
         target: 'http://localhost:5000',
         changeOrigin: true,
       },
+      '/esb': {
+        target: 'http://192.168.6.176:6001',
+        changeOrigin: true,
+      },
     },
   },
   build: {

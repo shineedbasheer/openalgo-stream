@@ -189,6 +189,7 @@ export interface StrategyConfig {
     exchange: string | null;
     strategyType: string | null;
     strategyId: string | null;
+    strategyName: string | null;
     positionType: string | null;
     timeInForce: string | null;
     indicators: IndicatorConfig[];

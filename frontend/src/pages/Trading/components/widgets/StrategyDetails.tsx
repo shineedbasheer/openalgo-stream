@@ -1,6 +1,5 @@
 import { useThemeStore } from '@/stores/themeStore';
 import type { StrategyConfig } from '..';
-import { MOCK_USER_STRATEGIES } from '../../mockData';
 import { TrendingUp, Target, Shield, AlertCircle, Zap } from 'lucide-react';
 
 interface StrategyDetailsProps {
@@ -11,9 +10,7 @@ export default function StrategyDetails({ config }: StrategyDetailsProps) {
     const { mode, appMode } = useThemeStore()
     const darkMode = mode === 'dark' || appMode === 'analyzer';
 
-    const strategyName = config.strategyId 
-        ? MOCK_USER_STRATEGIES.find(s => s.id === config.strategyId)?.name 
-        : 'AI Suggested Strategy';
+    const strategyName = config.strategyName || 'AI Suggested Strategy';
 
     const totalIndicators = config.indicators.length;
 

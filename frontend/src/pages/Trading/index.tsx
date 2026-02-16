@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
-import { BROKERS, WATCHLIST, MOCK_USER_STRATEGIES, MOCK_INDICATORS, MOCK_STRATEGY_PARAMETERS, mockBrokers } from './mockData';
+import { BROKERS, WATCHLIST, MOCK_INDICATORS, mockBrokers } from './mockData';
+import { strategyEngineApi, type RegisteredStrategy } from '@/api/StrategyEngine';
 import IndicatorParameterWidget from './components/widgets/IndicatorParameterWidget';
 import Modal from './components/widgets/Modal';
 // import { getAllSymbols } from '../../services/Register';
@@ -8,7 +9,7 @@ import ChatArea from './components/widgets/ChatArea';
 import RightSidebar from './components/widgets/RightSidebar';
 import TopSection from './components/widgets/TopSection';
 import { useThemeStore } from '@/stores/themeStore';
-import type { BrokerInfo, IndicatorConfig, Message, StrategyConfig } from './components';
+import type { BrokerInfo, IndicatorConfig, Message, StrategyConfig, StrategyParameter } from './components';
 import type { SymbolMetaData } from './types';
 
 export default function Trading() {
@@ -90,6 +91,9 @@ export default function Trading() {
     const [isStrategyStarted, setIsStrategyStarted] = useState(false);
     const [isStrategyInfoOpen, setIsStrategyInfoOpen] = useState(false);
     const [currentStrategyId, setCurrentStrategyId] = useState<string>('');
+    const [fetchedStrategies, setFetchedStrategies] = useState<RegisteredStrategy[]>([]);
+    const [_fetchedStrategyParams, setFetchedStrategyParams] = useState<StrategyParameter[]>([]);
+    const fetchedStrategyParamsRef = useRef<StrategyParameter[]>([]);
 
     // Fetch brokers on component mount
     useEffect(() => {
@@ -357,53 +361,131 @@ export default function Trading() {
     };
 
     // Update strategy type selection handler
-    const handleStrategyTypeSelect = (value: string) => {
+    const handleStrategyTypeSelect = async (value: string) => {
         setSelectedStrategyType(value);
         configRef.current.strategyType = value;
         setStrategyConfig(prev => ({ ...prev, strategyType: value }));
 
         if (value === 'own') {
-            const strategyListMessage: Message = {
+            // Show loading message
+            const loadingMessage: Message = {
                 id: Date.now(),
                 type: 'ai',
-                content: '**Great choice! 📊**\n\nHere are your existing strategies. Select one to continue:',
-                widget: {
-                    type: 'strategy-list',
-                    data: {
-                        strategies: MOCK_USER_STRATEGIES,
-                        onSelect: (strategyId: string) => handleStrategySelect(strategyId)
-                    }
-                }
+                content: '**Great choice! 📊**\n\nFetching your registered strategies...'
             };
-            setMessages(prev => [...prev, strategyListMessage]);
+            setMessages(prev => [...prev, loadingMessage]);
+
+            try {
+                const strategies = await strategyEngineApi.getRegisteredStrategies(8);
+                setFetchedStrategies(strategies);
+
+                // Map API response to widget's Strategy shape
+                const mappedStrategies = strategies.map((s) => ({
+                    id: s.strategyId,
+                    name: s.strategyName,
+                    description: `${s.exchange} | ${s.positionType} | ${s.timeInForce}`,
+                    performance: `${Object.keys(s.strategyParameters).length} params`,
+                    status: 'active' as const
+                }));
+
+                const strategyListMessage: Message = {
+                    id: Date.now(),
+                    type: 'ai',
+                    content: '**Great choice! 📊**\n\nHere are your existing strategies. Select one to continue:',
+                    widget: {
+                        type: 'strategy-list',
+                        data: {
+                            strategies: mappedStrategies,
+                            onSelect: (strategyId: string) => handleStrategySelect(strategyId)
+                        }
+                    }
+                };
+                setMessages(prev => [...prev, strategyListMessage]);
+            } catch (error) {
+                console.error('Error fetching strategies:', error);
+                const errorMessage: Message = {
+                    id: Date.now(),
+                    type: 'ai',
+                    content: '**Error loading strategies** ❌\n\nFailed to fetch your registered strategies. Please try again or contact support.'
+                };
+                setMessages(prev => [...prev, errorMessage]);
+            }
         } else {
             // For 'suggest', skip to position type
             setTimeout(() => askPositionType(), 500);
         }
     };
 
+    /**
+     * Convert API strategyParameters (key-value pairs) into StrategyParameter[]
+     * so the StrategyParametersWidget can render editable inputs.
+     */
+    const convertToStrategyParams = (params: Record<string, number>): StrategyParameter[] => {
+        return Object.entries(params).map(([key, value]) => {
+            // Create a human-readable label from camelCase key
+            const label = key
+                .replace(/([A-Z])/g, ' $1')
+                .replace(/^./, str => str.toUpperCase())
+                .trim();
+
+            return {
+                key,
+                label,
+                value,
+                type: 'number' as const,
+                description: `Strategy parameter: ${label}`,
+            };
+        });
+    };
+
     // Update strategy selection handler
-    const handleStrategySelect = (strategyId: string) => {
+    const handleStrategySelect = async (strategyId: string) => {
         setSelectedStrategy(strategyId);
         configRef.current.strategyId = strategyId;
         setStrategyConfig(prev => ({ ...prev, strategyId }));
 
-        const strategy = MOCK_USER_STRATEGIES.find(s => s.id === strategyId);
+        const strategy = fetchedStrategies.find(s => s.strategyId === strategyId);
 
         // Update strategy name in config and tab
         if (strategy) {
-            configRef.current.strategyName = strategy.name;
-            updateStrategyName(strategy.name);
+            configRef.current.strategyName = strategy.strategyName;
+            updateStrategyName(strategy.strategyName);
         }
 
-        const confirmMessage: Message = {
-            id: Date.now(),
-            type: 'ai',
-            content: `**Excellent! You've selected "${strategy?.name}" ✅**\n\nPerformance: ${strategy?.performance}\n\nLet's configure the trading parameters.`
-        };
-        setMessages(prev => [...prev, confirmMessage]);
+        // Fetch full strategy config (with strategyParameters) from API
+        try {
+            const strategyConfig = await strategyEngineApi.getStrategyConfig(strategyId);
 
-        setTimeout(() => askPositionType(), 500);
+            // Convert API strategyParameters to widget-compatible format and store
+            if (strategyConfig.strategyParameters) {
+                const convertedParams = convertToStrategyParams(strategyConfig.strategyParameters);
+                setFetchedStrategyParams(convertedParams);
+                fetchedStrategyParamsRef.current = convertedParams;
+
+                // Also store raw params in configRef
+                configRef.current.strategyParameters = strategyConfig.strategyParameters;
+                setStrategyConfig(prev => ({
+                    ...prev,
+                    strategyParameters: strategyConfig.strategyParameters
+                }));
+            }
+
+            // Pre-fill positionType and timeInForce from the API response
+            if (strategyConfig.positionType) {
+                configRef.current.positionType = strategyConfig.positionType;
+                setSelectedPositionType(strategyConfig.positionType);
+                setStrategyConfig(prev => ({ ...prev, positionType: strategyConfig.positionType }));
+            }
+            if (strategyConfig.timeInForce) {
+                configRef.current.timeInForce = strategyConfig.timeInForce;
+                setSelectedTimeInForce(strategyConfig.timeInForce);
+                setStrategyConfig(prev => ({ ...prev, timeInForce: strategyConfig.timeInForce }));
+            }
+        } catch (error) {
+            console.error('Error fetching strategy config:', error);
+        }
+
+        askPositionType();
     };
 
     // Add this function here
@@ -525,7 +607,9 @@ export default function Trading() {
         configRef.current.indicators = allIndicatorsConfig;
         setStrategyConfig(prev => ({ ...prev, indicators: allIndicatorsConfig }));
 
-        // Ask for strategy parameters
+        // Show strategy parameters from the API response only
+        const paramsToShow = fetchedStrategyParamsRef.current;
+
         const strategyParamsMessage: Message = {
             id: Date.now(),
             type: 'ai',
@@ -533,7 +617,7 @@ export default function Trading() {
             widget: {
                 type: 'strategy-parameters',
                 data: {
-                    parameters: MOCK_STRATEGY_PARAMETERS,
+                    parameters: paramsToShow,
                     onSave: (parameters: Record<string, any>) => handleSaveStrategyParameters(parameters)
                 }
             }
@@ -637,9 +721,7 @@ export default function Trading() {
         const finalConfig = configRef.current;
         console.log('Final Strategy Configuration with Symbols:', finalConfig);
 
-        const strategyName = finalConfig.strategyId
-            ? MOCK_USER_STRATEGIES.find(s => s.id === finalConfig.strategyId)?.name
-            : 'AI Suggested';
+        const strategyName = finalConfig.strategyName || 'AI Suggested';
 
         const totalIndicators = finalConfig.indicators.length;
 
