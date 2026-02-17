@@ -67,6 +67,34 @@ export interface StrategyConfigResponse {
 }
 
 /**
+ * Request payload for starting a strategy
+ */
+export interface StartStrategyRequest {
+  exchange: string
+  filterSymbols: string[]
+  gateway: string
+  indicators: string[]
+  positionType: string
+  strategyId: string
+  strategyName: string
+  strategyParameters: StrategyParameters
+  timeInForce: string
+  userId: string
+}
+
+/**
+ * Response shape for the start strategy endpoint
+ */
+export interface StartStrategyResponse {
+  apiVersion: string
+  failure: boolean
+  status: string
+  success: boolean
+  strategyId: string
+  strategyStatus: string
+}
+
+/**
  * Strategy Engine API - calls the external ESB service
  */
 export const strategyEngineApi = {
@@ -88,5 +116,16 @@ export const strategyEngineApi = {
       `/esb/api/strategies/strategy/${strategyId}/registered`
     )
     return response.data.config
+  },
+
+  /**
+   * Start a strategy by posting its configuration to the ESB service
+   */
+  startStrategy: async (payload: StartStrategyRequest): Promise<StartStrategyResponse> => {
+    const response = await esbClient.post<StartStrategyResponse>(
+      '/esb/api/strategies/start',
+      payload
+    )
+    return response.data
   },
 }
