@@ -56,6 +56,19 @@ export interface RegisteredStrategy {
 }
 
 /**
+ * Generic action response from ESB (stop, exit, etc.)
+ */
+export interface StrategyActionResponse {
+  apiVersion: string
+  failure: boolean
+  status: string
+  success: boolean
+  message?: string
+  errorMessage?: string
+  strategyId?: string
+}
+
+/**
  * Response shape for the single strategy config endpoint
  */
 export interface StrategyConfigResponse {
@@ -89,4 +102,45 @@ export const strategyEngineApi = {
     )
     return response.data.config
   },
+
+  /**
+   * STOP single strategy
+   */
+  stopStrategy: async (strategyId: number): Promise<StrategyActionResponse> => {
+    const response = await esbClient.post<StrategyActionResponse>(
+      `/esb/api/strategies/${strategyId}/stop`
+    )
+    return response.data
+  },
+
+  /**
+   * STOP all strategies for a user
+   */
+  stopAllStrategies: async (userId: number): Promise<StrategyActionResponse> => {
+    const response = await esbClient.post<StrategyActionResponse>(
+      `/esb/api/strategies/user/${userId}/stop-all`
+    )
+    return response.data
+  },
+
+  /**
+   * EXIT all positions for a single strategy
+   */
+  exitAllPositions: async (strategyId: number): Promise<StrategyActionResponse> => {
+    const response = await esbClient.post<StrategyActionResponse>(
+      `/esb/api/strategies/${strategyId}/exit-all`
+    )
+    return response.data
+  },
+
+  /**
+   * EXIT all positions for ALL strategies
+   */
+  exitAllPositionsForAllStrategies: async (): Promise<StrategyActionResponse> => {
+    const response = await esbClient.post<StrategyActionResponse>(
+      `/esb/api/strategies/exit-all-positions`
+    )
+    return response.data
+  },
+
 }
