@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { BROKERS, WATCHLIST, MOCK_INDICATORS, mockBrokers } from './mockData';
-import { strategyEngineApi, type RegisteredStrategy } from '@/api/StrategyEngine';
+import { strategyEngineApi, type RegisteredStrategy, type StartStrategyRequest } from '@/api/StrategyEngine';
 import IndicatorParameterWidget from './components/widgets/IndicatorParameterWidget';
 import Modal from './components/widgets/Modal';
 // import { getAllSymbols } from '../../services/Register';
@@ -722,13 +722,12 @@ export default function Trading() {
         console.log('Final Strategy Configuration with Symbols:', finalConfig);
 
         const strategyName = finalConfig.strategyName || 'AI Suggested';
-
-        const totalIndicators = finalConfig.indicators.length;
+        const paramCount = Object.keys(finalConfig.strategyParameters || {}).length;
 
         const summaryMessage: Message = {
             id: Date.now(),
             type: 'ai',
-            content: `**${selectedTokens.length > 0 ? 'Symbols Saved!' : 'Proceeding with Entry Condition!'} ✅**\n\n**Configuration Summary:**\n• Broker: ${finalConfig.brokerName}\n• Exchange: ${finalConfig.exchange}\n• Strategy: ${strategyName}\n• Position Type: ${finalConfig.positionType}\n• Time in Force: ${finalConfig.timeInForce}\n• Indicators: ${totalIndicators} configured\n• ${selectedTokens.length > 0 ? `Symbols: ${selectedTokens.length} selected` : 'Symbol Filter: Using entry condition'}\n• Max Position Size: ₹${finalConfig.riskManagement.maxPositionSize?.toLocaleString()}\n• Max Daily Loss: ₹${finalConfig.riskManagement.maxDailyLoss?.toLocaleString()}\n\nYour strategy is ready to deploy!`,
+            content: `**Configuration Summary:**\n• Strategy: ${strategyName}\n• Exchange: ${finalConfig.exchange}\n• Position Type: ${finalConfig.positionType}\n• Time in Force: ${finalConfig.timeInForce}\n• Strategy Parameters: ${paramCount} configured\n• Max Position Size: ₹${finalConfig.riskManagement.maxPositionSize?.toLocaleString()}\n• Max Daily Loss: ₹${finalConfig.riskManagement.maxDailyLoss?.toLocaleString()}\n\nYour strategy is ready to deploy!`,
             widget: {
                 type: 'start-strategy',
                 data: {
@@ -778,150 +777,64 @@ export default function Trading() {
     //     );
     // };
 
-    const handleStartStrategy = () => {
+    const handleStartStrategy = async () => {
         const finalConfig = configRef.current;
 
         console.log('Starting Strategy with Config:', finalConfig);
 
-        // Mark strategy as started
-        setIsStrategyStarted(true);
-
-        // Initial success message
-        const successMessage: Message = {
-            id: Date.now(),
-            type: 'ai',
-            content: `**🎉 Strategy Deployed Successfully! 🎉**\n\n**Status:** ✅ LIVE\n\nYour strategy is now active and monitoring the market...`
+        // Build the API payload from the current config
+        const payload: StartStrategyRequest = {
+            exchange: finalConfig.exchange || 'NSE',
+            filterSymbols: finalConfig.filterSymbols || [],
+            gateway: finalConfig.exchange || 'NSE',
+            indicators: finalConfig.indicators?.map(ind => ind.indicatorId) || [],
+            positionType: finalConfig.positionType || 'INTRADAY',
+            strategyId: finalConfig.strategyId || '',
+            strategyName: finalConfig.strategyName || '',
+            strategyParameters: finalConfig.strategyParameters || {},
+            timeInForce: finalConfig.timeInForce || 'DAY',
+            userId: '8',
         };
-        setMessages(prev => [...prev, successMessage]);
 
-        // Update the active strategy status in the tabs
-        setStrategies(prev =>
-            prev.map((s, idx) =>
-                idx === activeStrategy
-                    ? { ...s, status: 'active' }
-                    : s
-            )
-        );
+        try {
+            const response = await strategyEngineApi.startStrategy(payload);
 
-        // Simulate live trading flow with realistic delays
-        setTimeout(() => {
-            const waitingMessage: Message = {
-                id: Date.now(),
-                type: 'ai',
-                content: `⏳ **Waiting for entry condition to meet...**\n\nScanning market for signals based on your configured indicators.`
-            };
-            setMessages(prev => [...prev, waitingMessage]);
-        }, 2000);
+            if (response.success && response.strategyStatus === 'RUNNING') {
+                // Mark strategy as started
+                setIsStrategyStarted(true);
 
-        setTimeout(() => {
-            const entrySignalMessage: Message = {
-                id: Date.now(),
-                type: 'ai',
-                content: `🎯 **Entry signal detected!**\n\nConditions met for ${finalConfig.filterSymbols.length > 0 ? 'selected symbol' : 'entry criteria'}.`
-            };
-            setMessages(prev => [...prev, entrySignalMessage]);
-        }, 5000);
-
-        setTimeout(() => {
-            const positionOpenMessage: Message = {
-                id: Date.now(),
-                type: 'ai',
-                content: `✅ **Position opened successfully!**\n\n📊 **Trade Details:**\n• Quantity: 10\n• Entry Price: ₹101.90\n• Position Value: ₹1,019.00\n• Stop Loss: ₹${(101.90 * (1 - (finalConfig.strategyParameters?.stopLossPercentage || 1.5) / 100)).toFixed(2)}\n• Target: ₹${(101.90 * (1 + (finalConfig.strategyParameters?.takeProfitPercentage || 3) / 100)).toFixed(2)}`
-            };
-            setMessages(prev => [...prev, positionOpenMessage]);
-        }, 7000);
-
-        setTimeout(() => {
-            const monitoringMessage: Message = {
-                id: Date.now(),
-                type: 'ai',
-                content: `👀 **Monitoring position...**\n\nWaiting for profit target or stop loss to trigger.`
-            };
-            setMessages(prev => [...prev, monitoringMessage]);
-        }, 10000);
-
-        setTimeout(() => {
-            const targetReachedMessage: Message = {
-                id: Date.now(),
-                type: 'ai',
-                content: `🎊 **Great! We reached our target!**\n\n✨ Target price of ₹${(101.90 * (1 + (finalConfig.strategyParameters?.takeProfitPercentage || 3) / 100)).toFixed(2)} achieved!`
-            };
-            setMessages(prev => [...prev, targetReachedMessage]);
-        }, 15000);
-
-        setTimeout(() => {
-            const exitingMessage: Message = {
-                id: Date.now(),
-                type: 'ai',
-                content: `🔄 **Trying to exit position...**\n\nPlacing exit order at market price.`
-            };
-            setMessages(prev => [...prev, exitingMessage]);
-        }, 17000);
-
-        setTimeout(() => {
-            const exitedMessage: Message = {
-                id: Date.now(),
-                type: 'ai',
-                content: `✅ **Successfully exited!**\n\n📊 **Exit Details:**\n• Quantity: 10\n• Exit Price: ₹105.90\n• Exit Value: ₹1,059.00`
-            };
-            setMessages(prev => [...prev, exitedMessage]);
-        }, 19000);
-
-        setTimeout(() => {
-            const profitMessage: Message = {
-                id: Date.now(),
-                type: 'ai',
-                content: `💰 **Trade Summary**\n\n**Profit Breakdown:**\n• Entry: 10 @ ₹101.90 = ₹1,019.00\n• Exit: 10 @ ₹105.90 = ₹1,059.00\n• **Gross Profit: ₹40.00**\n• Brokerage & Taxes: ₹8.00\n• **Net Profit: ₹32.00** 🎉\n\n${finalConfig.strategyParameters?.reEntryEnabled ? '**Re-entry is enabled.** Do you want to re-run this strategy?' : 'Strategy will continue monitoring for new signals.'}`
-            };
-            setMessages(prev => [...prev, profitMessage]);
-        }, 21000);
-
-        if (finalConfig.strategyParameters?.reEntryEnabled) {
-            setTimeout(() => {
-                const reRunMessage: Message = {
+                const successMessage: Message = {
                     id: Date.now(),
                     type: 'ai',
-                    content: `🔄 **Trade Completed Successfully!**\n\nWould you like to continue running the strategy?`,
-                    widget: {
-                        type: 're-run-confirmation',
-                        data: {
-                            profit: 32.00,
-                            onConfirm: () => handleReRun(),
-                            onStop: () => handleStopStrategy()
-                        }
-                    }
+                    content: `**Strategy Started Successfully!**\n\n**Status:** RUNNING\n**Strategy ID:** ${response.strategyId}\n\nYour strategy "${finalConfig.strategyName}" is now active and monitoring the market.`
                 };
-                setMessages(prev => [...prev, reRunMessage]);
-            }, 23000);
+                setMessages(prev => [...prev, successMessage]);
+
+                // Update the active strategy status in the tabs
+                setStrategies(prev =>
+                    prev.map((s, idx) =>
+                        idx === activeStrategy
+                            ? { ...s, status: 'active' }
+                            : s
+                    )
+                );
+            } else {
+                const failMessage: Message = {
+                    id: Date.now(),
+                    type: 'ai',
+                    content: `**Strategy Start Failed**\n\n**Status:** ${response.status}\n\nThe strategy could not be started. Please review your configuration and try again.`
+                };
+                setMessages(prev => [...prev, failMessage]);
+            }
+        } catch (error) {
+            console.error('Error starting strategy:', error);
+            const errorMessage: Message = {
+                id: Date.now(),
+                type: 'ai',
+                content: `**Error Starting Strategy**\n\nFailed to connect to the strategy engine. Please check if the service is running and try again.`
+            };
+            setMessages(prev => [...prev, errorMessage]);
         }
-
-        // Add handlers
-        const handleReRun = () => {
-            const confirmMessage: Message = {
-                id: Date.now(),
-                type: 'ai',
-                content: `✅ **Strategy continues...**\n\nMonitoring market for next entry signal.`
-            };
-            setMessages(prev => [...prev, confirmMessage]);
-        };
-
-        const handleStopStrategy = () => {
-            setIsStrategyStarted(false);
-            setStrategies(prev =>
-                prev.map((s, idx) =>
-                    idx === activeStrategy
-                        ? { ...s, status: 'inactive' }
-                        : s
-                )
-            );
-
-            const stopMessage: Message = {
-                id: Date.now(),
-                type: 'ai',
-                content: `⏹️ **Strategy Stopped**\n\nYour strategy has been stopped successfully. Final profit: ₹32.00`
-            };
-            setMessages(prev => [...prev, stopMessage]);
-        };
     };
 
     useEffect(() => {

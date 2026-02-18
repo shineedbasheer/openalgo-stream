@@ -205,7 +205,7 @@ export interface StartStrategyWidgetData {
     type: 'start-strategy';
     data: {
         strategyConfig: StrategyConfig;
-        onStart: () => void;
+        onStart: () => void | Promise<void>;
     };
 }
 
