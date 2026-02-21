@@ -10,7 +10,7 @@ from database.apilog_db import async_log_order
 from database.apilog_db import executor as log_executor
 from database.auth_db import get_auth_token_broker
 from database.settings_db import get_analyze_mode
-from extensions import socketio
+from utils.event_publisher import get_event_publisher
 from services.telegram_alert_service import telegram_alert_service
 from utils.api_analyzer import analyze_request, generate_order_id
 from utils.constants import (
@@ -24,6 +24,16 @@ from utils.logging import get_logger
 
 # Initialize logger
 logger = get_logger(__name__)
+
+# Event publisher will be initialized lazily (not at import time)
+event_publisher = None
+
+def _get_event_publisher():
+    """Get event publisher with lazy initialization"""
+    global event_publisher
+    if event_publisher is None:
+        event_publisher = get_event_publisher()
+    return event_publisher
 
 # Maximum number of orders allowed
 MAX_ORDERS = 100
@@ -63,8 +73,10 @@ def emit_analyzer_error(request_data: dict[str, Any], error_message: str) -> dic
     log_executor.submit(async_log_analyzer, analyzer_request, error_response, "splitorder")
 
     # Emit socket event asynchronously (non-blocking)
-    socketio.start_background_task(
-        socketio.emit, "analyzer_update", {"request": analyzer_request, "response": error_response}
+    _get_event_publisher().publish_analyzer_update(
+        user_id=analyzer_request.get("apikey", "unknown"),
+        request=analyzer_request,
+        response=error_response
     )
 
     return error_response
@@ -289,19 +301,20 @@ def split_order_with_auth(
         log_executor.submit(async_log_analyzer, analyzer_request, response_data, "splitorder")
 
         # Emit socket event for toast notification asynchronously (non-blocking)
-        socketio.start_background_task(
-            socketio.emit,
-            "analyzer_update",
-            {"request": analyzer_request, "response": response_data},
+        _get_event_publisher().publish_analyzer_update(
+            user_id=original_data.get("apikey", "unknown"),
+            request=analyzer_request,
+            response=response_data
         )
 
         # Send Telegram alert in background task (non-blocking)
-        socketio.start_background_task(
+        executor.submit(
             telegram_alert_service.send_order_alert,
             "splitorder",
             split_data,
             response_data,
-            split_data.get("apikey"),
+            split_data.get("apikey"
+        ),
         )
         return True, response_data, 200
 
@@ -364,12 +377,13 @@ def split_order_with_auth(
     )
 
     # Send Telegram alert in background task (non-blocking)
-    socketio.start_background_task(
-        telegram_alert_service.send_order_alert,
-        "splitorder",
+    executor.submit(
+            telegram_alert_service.send_order_alert,
+            "splitorder",
         split_data,
         response_data,
-        original_data.get("apikey"),
+        original_data.get("apikey"
+        ),
     )
 
     return True, response_data, 200

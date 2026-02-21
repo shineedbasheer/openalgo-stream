@@ -359,8 +359,8 @@ class KafkaEventPublisher(EventPublisher):
             'acks': os.getenv('KAFKA_PRODUCER_ACKS', 'all'),
             'retries': int(os.getenv('KAFKA_PRODUCER_RETRIES', '3')),
             'request_timeout_ms': int(os.getenv('KAFKA_PRODUCER_REQUEST_TIMEOUT_MS', '30000')),
-            'max_in_flight_requests_per_connection': 5,
-            'enable_idempotence': True
+            'max_in_flight_requests_per_connection': 5
+            # 'enable_idempotence': True
         }
         
         try:
@@ -549,6 +549,150 @@ class KafkaEventPublisher(EventPublisher):
             logger.error(f"Error closing Kafka producer: {e}")
 
 
+
+
+class BothEventPublisher(EventPublisher):
+    """
+    Hybrid implementation - publishes to BOTH Socket.IO and Kafka
+    
+    This is useful when you want:
+    - Real-time UI updates via Socket.IO (low latency for users)
+    - External system integration via Kafka (event persistence and replay)
+    
+    Falls back to Socket.IO only if Kafka is unavailable.
+    """
+
+    def __init__(self, socketio_instance, bootstrap_servers: str, topic: str):
+        """
+        Initialize Both event publisher
+        
+        Args:
+            socketio_instance: Flask-SocketIO instance
+            bootstrap_servers: Comma-separated Kafka broker addresses
+            topic: Kafka topic name for publishing events
+        """
+        # Initialize Socket.IO publisher (always works)
+        self.socketio_publisher = SocketIOEventPublisher(socketio_instance)
+        
+        # Try to initialize Kafka publisher (fallback to None if fails)
+        self.kafka_publisher = None
+        try:
+            self.kafka_publisher = KafkaEventPublisher(bootstrap_servers, topic)
+            logger.info(
+                "BothEventPublisher initialized - publishing to Socket.IO AND Kafka\n"
+                f"  Kafka topic: {topic}\n"
+                f"  Kafka servers: {bootstrap_servers}"
+            )
+        except Exception as e:
+            logger.warning(
+                f"Failed to initialize Kafka publisher: {e}\n"
+                f"  Falling back to Socket.IO only mode.\n"
+                f"  To use Kafka, ensure Kafka is running at {bootstrap_servers}"
+            )
+
+    def publish_order_event(
+        self,
+        user_id: str,
+        symbol: str,
+        action: str,
+        orderid: str,
+        mode: str,
+        **kwargs
+    ) -> bool:
+        """Publish order event to BOTH Socket.IO and Kafka"""
+        socketio_success = self.socketio_publisher.publish_order_event(
+            user_id, symbol, action, orderid, mode, **kwargs
+        )
+        kafka_success = True  # Default to success if Kafka not available
+        if self.kafka_publisher:
+            kafka_success = self.kafka_publisher.publish_order_event(
+                user_id, symbol, action, orderid, mode, **kwargs
+            )
+        return socketio_success and kafka_success
+
+    def publish_analyzer_update(
+        self,
+        user_id: str,
+        request: Dict[str, Any],
+        response: Dict[str, Any]
+    ) -> bool:
+        """Publish analyzer update to BOTH Socket.IO and Kafka"""
+        socketio_success = self.socketio_publisher.publish_analyzer_update(
+            user_id, request, response
+        )
+        kafka_success = True
+        if self.kafka_publisher:
+            kafka_success = self.kafka_publisher.publish_analyzer_update(
+                user_id, request, response
+            )
+        return socketio_success and kafka_success
+
+    def publish_order_notification(
+        self,
+        user_id: str,
+        symbol: str,
+        status: str,
+        message: str,
+        **kwargs
+    ) -> bool:
+        """Publish order notification to BOTH Socket.IO and Kafka"""
+        socketio_success = self.socketio_publisher.publish_order_notification(
+            user_id, symbol, status, message, **kwargs
+        )
+        kafka_success = True
+        if self.kafka_publisher:
+            kafka_success = self.kafka_publisher.publish_order_notification(
+                user_id, symbol, status, message, **kwargs
+            )
+        return socketio_success and kafka_success
+
+    def publish_master_contract_download(
+        self,
+        broker: str,
+        status: str,
+        message: str,
+        **kwargs
+    ) -> bool:
+        """Publish master contract download event to BOTH Socket.IO and Kafka"""
+        socketio_success = self.socketio_publisher.publish_master_contract_download(
+            broker, status, message, **kwargs
+        )
+        kafka_success = True
+        if self.kafka_publisher:
+            kafka_success = self.kafka_publisher.publish_master_contract_download(
+                broker, status, message, **kwargs
+            )
+        return socketio_success and kafka_success
+
+    def publish_password_change(
+        self,
+        user_id: str,
+        status: str,
+        message: str,
+        **kwargs
+    ) -> bool:
+        """Publish password change event to BOTH Socket.IO and Kafka"""
+        socketio_success = self.socketio_publisher.publish_password_change(
+            user_id, status, message, **kwargs
+        )
+        kafka_success = True
+        if self.kafka_publisher:
+            kafka_success = self.kafka_publisher.publish_password_change(
+                user_id, status, message, **kwargs
+            )
+        return socketio_success and kafka_success
+
+    def close(self) -> None:
+        """Close both Socket.IO and Kafka publishers"""
+        try:
+            self.socketio_publisher.close()
+            if self.kafka_publisher:
+                self.kafka_publisher.close()
+            logger.info("Both publishers closed successfully")
+        except Exception as e:
+            logger.error(f"Error closing both publishers: {e}")
+
+
 class EventPublisherFactory:
     """Factory to create appropriate event publisher based on configuration"""
 
@@ -575,7 +719,26 @@ class EventPublisherFactory:
         
         mode = os.getenv('ORDER_EVENT_MODE', 'SOCKETIO').upper()
         
-        if mode == 'KAFKA':
+        if mode == 'BOTH':
+            # Validate configuration for both Socket.IO and Kafka
+            bootstrap_servers = os.getenv('KAFKA_BOOTSTRAP_SERVERS')
+            topic = os.getenv('KAFKA_ORDER_EVENTS_TOPIC')
+            
+            if not bootstrap_servers:
+                raise ValueError(
+                    "BOTH mode requires KAFKA_BOOTSTRAP_SERVERS environment variable"
+                )
+            
+            if not topic:
+                raise ValueError(
+                    "BOTH mode requires KAFKA_ORDER_EVENTS_TOPIC environment variable"
+                )
+            
+            from extensions import socketio
+            cls._instance = BothEventPublisher(socketio, bootstrap_servers, topic)
+            logger.info("✓ Using BOTH Socket.IO and Kafka for order events")
+            
+        elif mode == 'KAFKA':
             # Validate Kafka configuration
             bootstrap_servers = os.getenv('KAFKA_BOOTSTRAP_SERVERS')
             topic = os.getenv('KAFKA_ORDER_EVENTS_TOPIC')
@@ -601,7 +764,7 @@ class EventPublisherFactory:
             
         else:
             raise ValueError(
-                f"Invalid ORDER_EVENT_MODE: '{mode}'. Must be 'SOCKETIO' or 'KAFKA'"
+                f"Invalid ORDER_EVENT_MODE: '{mode}'. Must be 'SOCKETIO', 'KAFKA', or 'BOTH'"
             )
         
         return cls._instance

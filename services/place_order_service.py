@@ -7,7 +7,7 @@ from database.analyzer_db import async_log_analyzer
 from database.apilog_db import async_log_order, executor
 from database.auth_db import get_auth_token_broker
 from database.settings_db import get_analyze_mode
-from extensions import socketio
+from utils.event_publisher import get_event_publisher
 from restx_api.schemas import OrderSchema
 from services.telegram_alert_service import telegram_alert_service
 from utils.api_analyzer import analyze_request, generate_order_id
@@ -22,6 +22,16 @@ from utils.logging import get_logger
 
 # Initialize logger
 logger = get_logger(__name__)
+
+# Event publisher will be initialized lazily (not at import time)
+event_publisher = None
+
+def _get_event_publisher():
+    """Get event publisher with lazy initialization"""
+    global event_publisher
+    if event_publisher is None:
+        event_publisher = get_event_publisher()
+    return event_publisher
 
 # Initialize schema
 order_schema = OrderSchema()
@@ -69,8 +79,10 @@ def emit_analyzer_error(request_data: dict[str, Any], error_message: str) -> dic
     executor.submit(async_log_analyzer, analyzer_request, error_response, "placeorder")
 
     # Emit socket event asynchronously (non-blocking)
-    socketio.start_background_task(
-        socketio.emit, "analyzer_update", {"request": analyzer_request, "response": error_response}
+    _get_event_publisher().publish_analyzer_update(
+        user_id=analyzer_request.get("apikey", "unknown"),
+        request=analyzer_request,
+        response=error_response
     )
 
     return error_response
@@ -196,29 +208,35 @@ def place_order_with_auth(
         # Emit SocketIO event asynchronously (non-blocking)
         # Skip event emission for batch orders (they emit a summary event at the end)
         if emit_event:
-            socketio.start_background_task(
-                socketio.emit,
-                "order_event",
-                {
-                    "symbol": order_data["symbol"],
-                    "action": order_data["action"],
-                    "orderid": order_id,
-                    "exchange": order_data.get("exchange", "Unknown"),
-                    "price_type": order_data.get("price_type", "Unknown"),
-                    "product_type": order_data.get("product_type", "Unknown"),
-                    "mode": "live",
-                },
-            )
+            logger.info(f"Publishing order event for order_id={order_id}, symbol={order_data['symbol']}")
+            try:
+                result = _get_event_publisher().publish_order_event(
+                    user_id=original_data.get("apikey", "unknown"),
+                    symbol=order_data["symbol"],
+                    action=order_data["action"],
+                    orderid=order_id,
+                    mode="live",
+                    exchange=order_data.get("exchange"),
+                    price_type=order_data.get("price_type"),
+                    product_type=order_data.get("product_type")
+                )
+                logger.info(f"Event publish result: {result}")
+            except Exception as e:
+                logger.error(f"Failed to publish event: {e}")
+                import traceback
+                traceback.print_exc()
+        else:
+            logger.info(f"Event emission skipped (emit_event=False) for order_id={order_id}")
         order_response_data = {"status": "success", "orderid": order_id}
         executor.submit(async_log_order, "placeorder", order_request_data, order_response_data)
         # Send Telegram alert in background task (non-blocking)
         # Moves DB lookups + formatting off request thread entirely
-        socketio.start_background_task(
+        executor.submit(
             telegram_alert_service.send_order_alert,
             "placeorder",
             order_data,
             order_response_data,
-            original_data.get("apikey"),
+            original_data.get("apikey")
         )
         return True, order_response_data, 200
     else:

@@ -14,7 +14,7 @@ from database.analyzer_db import async_log_analyzer
 from database.apilog_db import async_log_order, executor
 from database.auth_db import verify_api_key
 from database.settings_db import get_analyze_mode
-from extensions import socketio
+from utils.event_publisher import get_event_publisher
 from sandbox.fund_manager import FundManager, get_user_funds
 from sandbox.holdings_manager import HoldingsManager
 
@@ -25,6 +25,16 @@ from services.telegram_alert_service import telegram_alert_service
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
+
+# Event publisher will be initialized lazily (not at import time)
+event_publisher = None
+
+def _get_event_publisher():
+    """Get event publisher with lazy initialization"""
+    global event_publisher
+    if event_publisher is None:
+        event_publisher = get_event_publisher()
+    return event_publisher
 
 
 def is_sandbox_mode() -> bool:
@@ -95,13 +105,17 @@ def sandbox_place_order(
         executor.submit(async_log_analyzer, log_request, response, "placeorder")
 
         # Emit socket event asynchronously (non-blocking)
-        socketio.start_background_task(
-            socketio.emit, "analyzer_update", {"request": log_request, "response": response}
+        _get_event_publisher().publish_analyzer_update(
+            user_id=api_key,
+            request=log_request,
+            response=response
         )
 
         # Send Telegram alert in background task (non-blocking)
-        socketio.start_background_task(
-            telegram_alert_service.send_order_alert, "placeorder", order_data, response, api_key
+        executor.submit(
+            telegram_alert_service.send_order_alert,
+            "placeorder", order_data, response, api_key
+        
         )
 
         return success, response, status_code
@@ -150,8 +164,10 @@ def sandbox_modify_order(
 
         executor.submit(async_log_analyzer, log_request, response, "modifyorder")
         # Emit SocketIO event asynchronously (non-blocking)
-        socketio.start_background_task(
-            socketio.emit, "analyzer_update", {"request": log_request, "response": response}
+        _get_event_publisher().publish_analyzer_update(
+            user_id=api_key,
+            request=log_request,
+            response=response
         )
 
         return success, response, status_code
@@ -191,8 +207,10 @@ def sandbox_cancel_order(
 
         executor.submit(async_log_analyzer, log_request, response, "cancelorder")
         # Emit SocketIO event asynchronously (non-blocking)
-        socketio.start_background_task(
-            socketio.emit, "analyzer_update", {"request": log_request, "response": response}
+        _get_event_publisher().publish_analyzer_update(
+            user_id=api_key,
+            request=log_request,
+            response=response
         )
 
         return success, response, status_code

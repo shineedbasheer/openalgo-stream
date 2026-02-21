@@ -17,7 +17,7 @@ from database.apilog_db import async_log_order
 from database.apilog_db import executor as log_executor
 from database.auth_db import get_auth_token_broker
 from database.settings_db import get_analyze_mode
-from extensions import socketio
+from utils.event_publisher import get_event_publisher
 from services.option_symbol_service import get_option_symbol, parse_underlying_symbol
 from services.place_order_service import place_order
 from services.quotes_service import get_quotes
@@ -117,8 +117,10 @@ def emit_analyzer_error(request_data: dict[str, Any], error_message: str) -> dic
 
     log_executor.submit(async_log_analyzer, analyzer_request, error_response, "optionsmultiorder")
 
-    socketio.start_background_task(
-        socketio.emit, "analyzer_update", {"request": analyzer_request, "response": error_response}
+    _get_event_publisher().publish_analyzer_update(
+        user_id=analyzer_request.get("apikey", "unknown"),
+        request=analyzer_request,
+        response=error_response
     )
 
     return error_response
@@ -560,10 +562,10 @@ def process_multiorder_with_auth(
             async_log_analyzer, analyzer_request, response_data, "optionsmultiorder"
         )
 
-        socketio.start_background_task(
-            socketio.emit,
-            "analyzer_update",
-            {"request": analyzer_request, "response": response_data},
+        _get_event_publisher().publish_analyzer_update(
+            user_id=original_data.get("apikey", "unknown"),
+            request=analyzer_request,
+            response=response_data
         )
     else:
         # Log to order log
@@ -573,13 +575,14 @@ def process_multiorder_with_auth(
         log_executor.submit(async_log_order, "optionsmultiorder", request_log, response_data)
 
     # Send Telegram alert in background task (non-blocking)
-    socketio.start_background_task(
-        telegram_alert_service.send_order_alert,
-        "optionsmultiorder",
+    executor.submit(
+            telegram_alert_service.send_order_alert,
+            "optionsmultiorder",
         multiorder_data,
         response_data,
         api_key,
-    )
+    
+        )
 
     return True, response_data, 200
 

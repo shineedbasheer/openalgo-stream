@@ -19,7 +19,7 @@ from database.apilog_db import async_log_order
 from database.apilog_db import executor as log_executor
 from database.auth_db import get_auth_token_broker
 from database.settings_db import get_analyze_mode
-from extensions import socketio
+from utils.event_publisher import get_event_publisher
 from services.option_symbol_service import get_option_symbol
 from services.place_order_service import place_order
 from services.telegram_alert_service import telegram_alert_service
@@ -27,6 +27,16 @@ from utils.logging import get_logger
 
 # Initialize logger
 logger = get_logger(__name__)
+
+# Event publisher will be initialized lazily (not at import time)
+event_publisher = None
+
+def _get_event_publisher():
+    """Get event publisher with lazy initialization"""
+    global event_publisher
+    if event_publisher is None:
+        event_publisher = get_event_publisher()
+    return event_publisher
 
 # Maximum number of split orders allowed
 MAX_SPLIT_ORDERS = 100
@@ -347,13 +357,14 @@ def place_options_order(
                 log_executor.submit(async_log_order, "optionsorder", request_log, response_data)
 
             # Send Telegram alert in background task (non-blocking)
-            socketio.start_background_task(
-                telegram_alert_service.send_order_alert,
-                "optionsorder",
+            executor.submit(
+            telegram_alert_service.send_order_alert,
+            "optionsorder",
                 options_data,
                 response_data,
                 api_key,
-            )
+            
+        )
 
             logger.info(
                 f"Split options order completed: {successful_orders}/{len(results)} successful"
