@@ -78,13 +78,13 @@ export default function StrategyListWidget({ strategies, selectedId, onSelect }:
                                     }`}>
                                         {strategy.description}
                                     </p>
-                                    <div className={`text-xs font-medium ${
+                                    {/* <div className={`text-xs font-medium ${
                                         strategy.performance.startsWith('+')
                                             ? 'text-green-500'
                                             : 'text-red-500'
                                     }`}>
                                         Performance: {strategy.performance}
-                                    </div>
+                                    </div> */}
                                 </div>
                             </div>
                         </button>
