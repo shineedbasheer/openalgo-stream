@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, useEffect } from 'react'
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import { Providers } from '@/app/providers'
 import { AuthSync } from '@/components/auth/AuthSync'
@@ -6,6 +6,7 @@ import { FullWidthLayout } from '@/components/layout/FullWidthLayout'
 import { Layout } from '@/components/layout/Layout'
 import { PageLoader } from '@/components/ui/page-loader'
 import Trading from './pages/Trading'
+import { useThemeStore } from './stores/themeStore'
 
 // Lazy load all pages for code splitting
 // Public pages
@@ -95,6 +96,21 @@ const TrafficDashboard = lazy(() => import('@/pages/monitoring/TrafficDashboard'
 const LatencyDashboard = lazy(() => import('@/pages/monitoring/LatencyDashboard'))
 
 function App() {
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+
+    const theme = params.get('theme')
+    if (theme === 'light' || theme === 'dark') {
+      useThemeStore.getState().setMode(theme)
+    }
+
+    const userId = params.get('userId')
+    if (userId) {
+      localStorage.setItem('userId', userId)
+    }
+  }, [])
+
   return (
     <Providers>
       <BrowserRouter>
