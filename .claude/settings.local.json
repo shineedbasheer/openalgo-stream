@@ -52,7 +52,8 @@
       "Bash(uv sync:*)",
       "Bash(gh pr view:*)",
       "Bash(gh pr diff:*)",
-      "Bash(npm run build:*)"
+      "Bash(npm run build:*)",
+      "Bash(xargs -I {} sh -c 'echo \"\"=== {} ===\"\" && grep -i \"\"partial\\\\|fill\"\" \"\"{}\"\" | head -10')"
     ]
   }
 }

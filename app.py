@@ -516,6 +516,25 @@ def setup_environment(app):
         except Exception as e:
             logger.error(f"Failed to initialize Historify scheduler: {e}")
 
+        # Initialize Order Tracker (Kafka publisher for order status changes)
+        # Enabled only when ORDER_TRACKER_ENABLED=true in .env
+        # Guard against Flask debug reloader: in debug mode Werkzeug spawns a
+        # parent (reloader) process and a child (app) process.  We only want
+        # the tracker running in the child.  WERKZEUG_RUN_MAIN=='true' only in
+        # the child; in production (non-debug) the env var is absent, so the
+        # condition is also True — correct behaviour in both cases.
+        _is_reloader_parent = (
+            os.environ.get("FLASK_DEBUG", "False").lower() in ("true", "1", "t")
+            and os.environ.get("WERKZEUG_RUN_MAIN") != "true"
+        )
+        if not _is_reloader_parent:
+            try:
+                from order_tracker.service_manager import init_order_tracker
+
+                init_order_tracker(app)
+            except Exception as e:
+                logger.error(f"Failed to initialize Order Tracker: {e}")
+
     # Setup ngrok cleanup handlers (always register, regardless of ngrok being enabled)
     # This ensures proper cleanup on shutdown even if ngrok is enabled/disabled via UI
     # The actual tunnel creation happens in the __main__ block below
