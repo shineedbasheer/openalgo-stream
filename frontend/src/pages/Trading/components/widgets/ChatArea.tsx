@@ -97,19 +97,38 @@ export default function ChatArea({
                                         <div className="pt-1">
                                             <div className={`text-sm leading-relaxed ${darkMode ? 'text-gray-100' : 'text-gray-900'}`}>
                                                 {message.content.split('\n').map((line, i) => {
-                                                    if (line.trim().startsWith('**') && line.trim().endsWith('**')) {
+                                                    if (line.trim() === '') {
+                                                        return <div key={i} className="h-2" />;
+                                                    }
+
+                                                    // Parse inline **bold** segments
+                                                    const parts = line.split(/(\*\*.*?\*\*)/g);
+                                                    const rendered = parts.map((part, j) => {
+                                                        if (part.startsWith('**') && part.endsWith('**')) {
+                                                            return <strong key={j}>{part.slice(2, -2)}</strong>;
+                                                        }
+                                                        return <span key={j}>{part}</span>;
+                                                    });
+
+                                                    // Check if the entire line is bold (heading style)
+                                                    const trimmed = line.trim();
+                                                    const isBoldLine = trimmed.startsWith('**') && trimmed.endsWith('**') && trimmed.indexOf('**', 2) === trimmed.length - 2;
+                                                    if (isBoldLine) {
                                                         return (
                                                             <div key={i} className={`font-semibold text-base mb-2 ${
                                                                 darkMode ? 'text-white' : 'text-gray-900'
                                                             }`}>
-                                                                {line.replace(/\*\*/g, '')}
+                                                                {trimmed.slice(2, -2)}
                                                             </div>
                                                         );
                                                     }
-                                                    if (line.trim() === '') {
-                                                        return <div key={i} className="h-2"></div>;
+
+                                                    // Bullet point lines
+                                                    if (trimmed.startsWith('•') || trimmed.startsWith('- ')) {
+                                                        return <p key={i} className="mb-1 ml-2">{rendered}</p>;
                                                     }
-                                                    return <p key={i} className="mb-2">{line}</p>;
+
+                                                    return <p key={i} className="mb-2">{rendered}</p>;
                                                 })}
                                             </div>
 

@@ -6,7 +6,7 @@ import { useThemeStore } from '@/stores/themeStore';
 
 interface StartStrategyWidgetProps {
     strategyConfig: StrategyConfig;
-    onStart: () => void;
+    onStart: () => void | Promise<void>;
 }
 
 export default function StartStrategyWidget({ strategyConfig, onStart }: StartStrategyWidgetProps) {
@@ -22,17 +22,20 @@ export default function StartStrategyWidget({ strategyConfig, onStart }: StartSt
 
     const handleConfirm = async () => {
         setIsStarting(true);
-        // Simulate API call delay
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        onStart();
+        try {
+            await onStart();
+        } catch (error) {
+            console.error('Strategy start failed:', error);
+        } finally {
+            setIsStarting(false);
+        }
     };
 
     const handleCancel = () => {
         setShowConfirmation(false);
     };
 
-    const activeIndicators = strategyConfig.indicators.filter(ind => ind.visible);
-    const totalIndicators = strategyConfig.indicators.length;
+    const paramCount = Object.keys(strategyConfig.strategyParameters || {}).length;
 
     if (showConfirmation) {
         return (
@@ -73,7 +76,7 @@ export default function StartStrategyWidget({ strategyConfig, onStart }: StartSt
                             <div className={`text-sm ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>
                                 <div className="grid grid-cols-2 gap-3">
                                     <div>
-                                        <span className="font-semibold">Broker:</span> {strategyConfig.brokerName}
+                                        <span className="font-semibold">Strategy:</span> {strategyConfig.strategyName || 'AI Suggested'}
                                     </div>
                                     <div>
                                         <span className="font-semibold">Exchange:</span> {strategyConfig.exchange}
@@ -85,13 +88,10 @@ export default function StartStrategyWidget({ strategyConfig, onStart }: StartSt
                                         <span className="font-semibold">Time in Force:</span> {strategyConfig.timeInForce}
                                     </div>
                                     <div>
-                                        <span className="font-semibold">Active Indicators:</span> {activeIndicators.length}
-                                    </div>
-                                    <div>
-                                        <span className="font-semibold">Symbols:</span> {strategyConfig.filterSymbols.length}
+                                        <span className="font-semibold">Strategy Parameters:</span> {paramCount}
                                     </div>
                                 </div>
-                                <div className="mt-3 pt-3 border-t ${darkMode ? 'border-gray-700' : 'border-gray-200'}">
+                                <div className={`mt-3 pt-3 border-t ${darkMode ? 'border-gray-700' : 'border-gray-200'}`}>
                                     <div className="font-semibold mb-1">Risk Limits:</div>
                                     <div className="grid grid-cols-2 gap-3">
                                         <div>Max Position: ₹{strategyConfig.riskManagement.maxPositionSize?.toLocaleString()}</div>
@@ -204,12 +204,12 @@ export default function StartStrategyWidget({ strategyConfig, onStart }: StartSt
                                 <div className={`text-xs mb-1 ${
                                     darkMode ? 'text-gray-400' : 'text-gray-600'
                                 }`}>
-                                    Symbols
+                                    Exchange
                                 </div>
                                 <div className={`text-lg font-bold ${
                                     darkMode ? 'text-white' : 'text-gray-900'
                                 }`}>
-                                    {strategyConfig.filterSymbols.length}
+                                    {strategyConfig.exchange || '-'}
                                 </div>
                             </div>
 
@@ -219,12 +219,12 @@ export default function StartStrategyWidget({ strategyConfig, onStart }: StartSt
                                 <div className={`text-xs mb-1 ${
                                     darkMode ? 'text-gray-400' : 'text-gray-600'
                                 }`}>
-                                    Indicators
+                                    Parameters
                                 </div>
                                 <div className={`text-lg font-bold ${
                                     darkMode ? 'text-white' : 'text-gray-900'
                                 }`}>
-                                     {totalIndicators}
+                                    {paramCount}
                                 </div>
                             </div>
 
