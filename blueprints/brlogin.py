@@ -686,6 +686,20 @@ def broker_callback(broker, para=None):
 
                 forward_url = "broker.html"
 
+    elif broker == "evermore":
+        if request.method == "GET":
+            # Redirect to React TOTP page (used for LoginId + Password entry)
+            return redirect("/broker/evermore/totp")
+
+        elif request.method == "POST":
+            login_id = request.form.get("userid") or request.form.get("clientid")
+            password = request.form.get("pin")
+            # totp_code not used by Evermore but kept for interface compatibility
+            totp_code = request.form.get("totp")
+            user_id = login_id
+            auth_token, feed_token, error_message = auth_function(login_id, password, totp_code)
+            forward_url = "broker.html"
+
     else:
         code = request.args.get("code") or request.args.get("request_token")
         logger.debug(f"Generic broker - The code is {code}")
@@ -702,7 +716,7 @@ def broker_callback(broker, para=None):
             auth_token = f"{auth_token}"
 
         # For brokers that have user_id and feed_token from authenticate_broker
-        if broker in ["angel", "compositedge", "pocketful", "definedge", "dhan"]:
+        if broker in ["angel", "compositedge", "pocketful", "definedge", "dhan", "evermore"]:
             # For Compositedge, handle missing session user
             if broker == "compositedge" and "user" not in session:
                 # Get the admin user from the database
