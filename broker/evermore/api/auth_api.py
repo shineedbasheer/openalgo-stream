@@ -67,7 +67,7 @@ def authenticate_broker(login_id, password, totp_code=None):
         unique_id = data.get("UniqueId")
         ref_no = data.get("RefNo")
 
-        if not unique_id or not ref_no:
+        if unique_id is None or not ref_no:
             return None, None, "Login response missing UniqueId or RefNo"
 
         # Store auth as "UniqueId:RefNo" — both needed for every API call

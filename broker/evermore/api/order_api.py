@@ -1,17 +1,15 @@
 import json
 import os
 
-import httpx
-
 from broker.evermore.api.auth_api import get_api_url, parse_auth_token
 from broker.evermore.mapping.transform_data import (
-    map_exchange,
     map_product_type,
+    reverse_map_exchange,
     reverse_map_product_type_with_exchange,
     transform_data,
     transform_modify_order_data,
 )
-from database.token_db import get_br_symbol, get_symbol, get_token
+from database.token_db import get_symbol, get_token
 from utils.httpx_client import get_httpx_client
 from utils.logging import get_logger
 
@@ -108,7 +106,6 @@ def get_open_position(tradingsymbol, exchange, product_type, auth):
     Returns:
         Net quantity as string
     """
-    tradingsymbol = get_br_symbol(tradingsymbol, exchange)
     token = get_token(tradingsymbol, exchange)
     positions_data = get_positions(auth)
 
@@ -293,7 +290,6 @@ def close_all_positions(current_api_key, auth):
 
         token_no = str(position.get("TokenNo", ""))
         exchange = position.get("Exchange", "")
-        from broker.evermore.mapping.transform_data import reverse_map_exchange
         oa_exchange = reverse_map_exchange(exchange)
 
         symbol = get_symbol(token_no, oa_exchange)
@@ -391,13 +387,13 @@ def modify_order(data, auth):
     response = client.post(url, headers=_get_headers(), content=payload)
     response.status = response.status_code
 
-    data = json.loads(response.text)
+    resp_data = json.loads(response.text)
 
-    error = data.get("Error", "")
+    error = resp_data.get("Error", "")
     if error:
         return {"status": "error", "message": f"Modify failed: {error}"}, response.status
     else:
-        return {"status": "success", "orderid": str(data.get("IntOrdNo", ""))}, 200
+        return {"status": "success", "orderid": str(resp_data.get("IntOrdNo", ""))}, 200
 
 
 def cancel_all_orders_api(data, auth):
