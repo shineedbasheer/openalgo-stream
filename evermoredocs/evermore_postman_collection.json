@@ -1,0 +1,538 @@
+{
+	"info": {
+		"_postman_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+		"name": "Evermore (AutoTradeTech) REST API",
+		"description": "Complete API collection for Evermore (AutoTradeTech) trading platform. Covers authentication, order management, order/trade books, and positions.\n\nRun the LoginRequest first to auto-populate unique_id and ref_no, then OrderEntry to capture int_ord_no before using other endpoints.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Auth",
+			"item": [
+				{
+					"name": "LoginRequest",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"var jsonData = pm.response.json();",
+									"",
+									"if (jsonData.UniqueId > 0) {",
+									"    pm.collectionVariables.set(\"unique_id\", jsonData.UniqueId);",
+									"    pm.collectionVariables.set(\"ref_no\", jsonData.RefNo);",
+									"}",
+									"",
+									"pm.test(\"Login successful\", function() {",
+									"    pm.expect(jsonData.UniqueId).to.be.above(0);",
+									"    pm.expect(jsonData.RefNo).to.not.be.empty;",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"LoginId\": \"{{login_id}}\",\n    \"Password\": \"{{password}}\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/PublicAPI/LoginRequest",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"PublicAPI",
+								"LoginRequest"
+							]
+						},
+						"description": "Authenticate with the Evermore platform. On success, UniqueId and RefNo are auto-captured into collection variables for use in subsequent requests."
+					},
+					"response": []
+				},
+				{
+					"name": "LoginRequest (Wrong Password)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"var jsonData = pm.response.json();",
+									"",
+									"pm.test(\"Login rejected with UniqueId 0\", function() {",
+									"    pm.expect(jsonData.UniqueId).to.eql(0);",
+									"});",
+									"",
+									"pm.test(\"Response status is 200\", function() {",
+									"    pm.response.to.have.status(200);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"LoginId\": \"{{login_id}}\",\n    \"Password\": \"wrong_password\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/PublicAPI/LoginRequest",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"PublicAPI",
+								"LoginRequest"
+							]
+						},
+						"description": "Negative test: Attempt login with an incorrect password. Expects UniqueId to be 0 indicating authentication failure."
+					},
+					"response": []
+				}
+			],
+			"description": "Authentication endpoints for obtaining session credentials (UniqueId and RefNo)."
+		},
+		{
+			"name": "Orders",
+			"item": [
+				{
+					"name": "OrderEntry (BUY Limit)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"var jsonData = pm.response.json();",
+									"",
+									"if (jsonData.IntOrdNo > 0) {",
+									"    pm.collectionVariables.set(\"int_ord_no\", jsonData.IntOrdNo);",
+									"}",
+									"",
+									"pm.test(\"Order placed\", function() {",
+									"    pm.expect(jsonData.IntOrdNo).to.be.above(0);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"Uniqueid\": {{unique_id}},\n    \"LoginId\": \"{{login_id}}\",\n    \"RefNo\": \"{{ref_no}}\",\n    \"gateway\": \"NSECM\",\n    \"Exchange\": \"NSECM\",\n    \"Tokenno\": \"2885\",\n    \"clientcode\": \"\",\n    \"Buysell\": \"BUY\",\n    \"qty\": 1,\n    \"qtydisclosed\": 0,\n    \"Price\": 1.00,\n    \"Triggerprice\": 0,\n    \"Booktype\": \"RL\",\n    \"validity\": \"DAY\",\n    \"DeliveryType\": 0\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/PublicAPI/OrderEntry",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"PublicAPI",
+								"OrderEntry"
+							]
+						},
+						"description": "Place a BUY limit order on NSECM exchange. Token 2885 corresponds to RELIANCE. IntOrdNo is auto-captured for use in order status, modify, and cancel requests."
+					},
+					"response": []
+				},
+				{
+					"name": "OrderStatusRequest",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Response status is 200\", function() {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Response is valid JSON\", function() {",
+									"    pm.response.to.be.json;",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"Uniqueid\": {{unique_id}},\n    \"RefNo\": \"{{ref_no}}\",\n    \"IntordNo\": {{int_ord_no}}\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/PublicAPI/OrderStatusRequest",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"PublicAPI",
+								"OrderStatusRequest"
+							]
+						},
+						"description": "Check the current status of an order by its internal order number (IntOrdNo)."
+					},
+					"response": []
+				},
+				{
+					"name": "ModifyRequest",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"var jsonData = pm.response.json();",
+									"",
+									"pm.test(\"Response status is 200\", function() {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Order modified successfully\", function() {",
+									"    pm.expect(jsonData.IntOrdNo).to.be.above(0);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"Uniqueid\": {{unique_id}},\n    \"RefNo\": \"{{ref_no}}\",\n    \"IntordNo\": {{int_ord_no}},\n    \"qty\": 1,\n    \"qtydisclosed\": 0,\n    \"Price\": 2.00,\n    \"TriggerPrice\": 0,\n    \"Booktype\": \"RL\",\n    \"Validity\": \"DAY\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/PublicAPI/ModifyRequest",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"PublicAPI",
+								"ModifyRequest"
+							]
+						},
+						"description": "Modify an existing open order. Changes the price from 1.00 to 2.00. Verifies that IntOrdNo > 0 in the response."
+					},
+					"response": []
+				},
+				{
+					"name": "CancelRequest",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"var jsonData = pm.response.json();",
+									"",
+									"pm.test(\"Response status is 200\", function() {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Order cancelled successfully\", function() {",
+									"    pm.expect(jsonData.IntOrdNo).to.be.above(0);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"UniqueId\": {{unique_id}},\n    \"RefNo\": \"{{ref_no}}\",\n    \"IntOrdNo\": {{int_ord_no}}\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/PublicAPI/CancelRequest",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"PublicAPI",
+								"CancelRequest"
+							]
+						},
+						"description": "Cancel an existing open order by its internal order number. Verifies that IntOrdNo > 0 in the response."
+					},
+					"response": []
+				}
+			],
+			"description": "Order management endpoints: place, check status, modify, and cancel orders."
+		},
+		{
+			"name": "Books",
+			"item": [
+				{
+					"name": "OrderBookRequest",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Response status is 200\", function() {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Response is valid JSON\", function() {",
+									"    pm.response.to.be.json;",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"UniqueId\": {{unique_id}},\n    \"RefNo\": \"{{ref_no}}\",\n    \"Error\": \"\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/PublicAPI/OrderBookRequest",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"PublicAPI",
+								"OrderBookRequest"
+							]
+						},
+						"description": "Retrieve the full order book for the current session."
+					},
+					"response": []
+				},
+				{
+					"name": "OrderBookRequest (by IntOrdNo)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Response status is 200\", function() {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Response is valid JSON\", function() {",
+									"    pm.response.to.be.json;",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"UniqueId\": {{unique_id}},\n    \"RefNo\": \"{{ref_no}}\",\n    \"Error\": \"\",\n    \"IntOrdNo\": {{int_ord_no}}\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/PublicAPI/OrderBookRequest",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"PublicAPI",
+								"OrderBookRequest"
+							]
+						},
+						"description": "Retrieve order book filtered by a specific internal order number (IntOrdNo)."
+					},
+					"response": []
+				},
+				{
+					"name": "TradeBookRequest",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Response status is 200\", function() {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Response is valid JSON\", function() {",
+									"    pm.response.to.be.json;",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"UniqueId\": {{unique_id}},\n    \"RefNo\": \"{{ref_no}}\",\n    \"Error\": \"\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/PublicAPI/TradeBookRequest",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"PublicAPI",
+								"TradeBookRequest"
+							]
+						},
+						"description": "Retrieve the trade book containing all executed trades for the current session."
+					},
+					"response": []
+				}
+			],
+			"description": "Order book and trade book query endpoints."
+		},
+		{
+			"name": "Positions",
+			"item": [
+				{
+					"name": "PositionRequest",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Response status is 200\", function() {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Response is valid JSON\", function() {",
+									"    pm.response.to.be.json;",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"Uniqueid\": {{unique_id}},\n    \"RefNo\": \"{{ref_no}}\",\n    \"Error\": \"\",\n    \"ClientCode\": \"\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/PublicAPI/PositionRequest",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"PublicAPI",
+								"PositionRequest"
+							]
+						},
+						"description": "Retrieve current open positions for the session."
+					},
+					"response": []
+				}
+			],
+			"description": "Position query endpoints."
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://192.168.6.164:16006",
+			"type": "string"
+		},
+		{
+			"key": "login_id",
+			"value": "DAKS",
+			"type": "string"
+		},
+		{
+			"key": "password",
+			"value": "a@3333333333",
+			"type": "string"
+		},
+		{
+			"key": "unique_id",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "ref_no",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "int_ord_no",
+			"value": "",
+			"type": "string"
+		}
+	]
+}

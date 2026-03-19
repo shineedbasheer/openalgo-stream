@@ -686,6 +686,14 @@ def broker_callback(broker, para=None):
 
                 forward_url = "broker.html"
 
+    elif broker == "evermore":
+        # Evermore uses LoginId/Password from .env (BROKER_API_KEY / BROKER_API_SECRET)
+        # No OAuth redirect or TOTP form needed — authenticate directly
+        user_id = os.getenv("BROKER_API_KEY", "")
+        auth_token, error_message = auth_function(None)  # reads creds from .env
+        feed_token = None
+        forward_url = "broker.html"
+
     else:
         code = request.args.get("code") or request.args.get("request_token")
         logger.debug(f"Generic broker - The code is {code}")
@@ -702,7 +710,7 @@ def broker_callback(broker, para=None):
             auth_token = f"{auth_token}"
 
         # For brokers that have user_id and feed_token from authenticate_broker
-        if broker in ["angel", "compositedge", "pocketful", "definedge", "dhan"]:
+        if broker in ["angel", "compositedge", "pocketful", "definedge", "dhan", "evermore"]:
             # For Compositedge, handle missing session user
             if broker == "compositedge" and "user" not in session:
                 # Get the admin user from the database
