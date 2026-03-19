@@ -1,98 +1,88 @@
-from database.token_db import get_symbol
-from broker.evermore.mapping.transform_data import (
-    reverse_map_exchange,
-    reverse_map_product_type_with_exchange,
-)
+# Mapping Evermore (AutoTradeTech) Response Data to OpenAlgo Format
+
+import json
+
+from broker.evermore.mapping.transform_data import reverse_map_exchange, reverse_map_product_type
+from database.token_db import get_oa_symbol, get_symbol
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
 
-
-# Evermore order status → OpenAlgo status mapping
-ORDER_STATUS_MAP = {
-    "Submitted": "open",
-    "EPEnding": "pending",
-    "Ecancelled": "cancelled",
-    "ERejected": "rejected",
-    "MRejected": "rejected",
-    "Executed": "complete",
+# Evermore order status → OpenAlgo status (case-insensitive)
+STATUS_MAP = {
+    "submitted": "open",
+    "epending": "open",
+    "executed": "complete",
+    "erejected": "rejected",
+    "mrejected": "rejected",
+    "ecancelled": "cancelled",
 }
 
 
-def map_order_status(evermore_status):
-    """Map Evermore order status to OpenAlgo standard status"""
-    return ORDER_STATUS_MAP.get(evermore_status, evermore_status.lower())
+def _normalize_status(evermore_status):
+    """Normalize Evermore order status to OpenAlgo format."""
+    if not evermore_status:
+        return "unknown"
+    return STATUS_MAP.get(evermore_status.lower(), evermore_status.lower())
 
 
 def map_order_data(order_data):
     """
-    Process Evermore OrderBookRequest response into OpenAlgo format.
+    Processes and modifies a list of order dictionaries from Evermore.
+    Converts broker symbols to OpenAlgo symbols.
 
-    Evermore returns a collection with fields:
-    IntOrdNo, TokenNo, ExchOrdNo, QtyRemaining, QtyTraded,
-    OrderStatus, OrderPrice, OrderTime, BuySell, TriggerPrice, Exchange, etc.
-
-    Returns:
-        List of order dicts with OpenAlgo field names
+    Evermore returns order data directly as a list (no 'data' wrapper).
     """
-    if not order_data:
+    if order_data is None:
         logger.info("No order data available.")
         return []
 
-    orders = order_data if isinstance(order_data, list) else [order_data]
+    # Evermore returns a direct list, not wrapped in {"data": [...]}
+    if isinstance(order_data, dict) and "data" in order_data:
+        order_data = order_data["data"]
 
-    for order in orders:
+    if not order_data:
+        return []
+
+    for order in order_data:
         token_no = str(order.get("TokenNo", ""))
-        exchange = order.get("Exchange", "")
-        oa_exchange = reverse_map_exchange(exchange)
+        exchange = reverse_map_exchange(order.get("Exchange", order.get("gateway", "")))
 
-        # Reverse lookup symbol from token
-        symbol_from_db = get_symbol(token_no, oa_exchange)
-        if symbol_from_db:
-            order["tradingsymbol"] = symbol_from_db
-        else:
-            order["tradingsymbol"] = order.get("Symbol", "")
-            logger.info(
-                f"Symbol not found for token {token_no} and exchange {oa_exchange}. "
-                f"Keeping original symbol."
-            )
+        if token_no:
+            # Look up OA symbol from token
+            oa_symbol = get_symbol(token_no, exchange)
+            if oa_symbol:
+                order["tradingsymbol"] = oa_symbol
+            else:
+                order["tradingsymbol"] = token_no
+        order["exchange"] = exchange
 
-        order["exchange"] = oa_exchange
-
-        # Map product type using exchange context
-        delivery_type = order.get("DeliveryType", 0)
-        order["producttype"] = reverse_map_product_type_with_exchange(delivery_type, exchange)
-
-        # Map order status
-        order["status"] = map_order_status(order.get("OrderStatus", ""))
-
-    return orders
+    return order_data
 
 
 def calculate_order_statistics(order_data):
     """
-    Calculate order statistics from mapped order data.
-
-    Returns:
-        Dict with counts of buy, sell, completed, open, rejected orders
+    Calculates statistics from order data.
     """
     total_buy_orders = total_sell_orders = 0
     total_completed_orders = total_open_orders = total_rejected_orders = 0
 
     if order_data:
         for order in order_data:
-            action = order.get("BuySell", "").upper()
-            if action == "BUY":
+            # Count buy and sell orders
+            buy_sell = order.get("BuySell", order.get("Buysell", "")).upper()
+            if buy_sell == "BUY":
                 total_buy_orders += 1
-            elif action == "SELL":
+            elif buy_sell == "SELL":
                 total_sell_orders += 1
 
-            status = order.get("status", "")
+            # Count orders based on their status
+            status = _normalize_status(order.get("OrderStatus", ""))
             if status == "complete":
                 total_completed_orders += 1
-            elif status in ("open", "pending"):
+            elif status == "open":
                 total_open_orders += 1
-            elif status in ("rejected", "cancelled"):
+            elif status == "rejected":
                 total_rejected_orders += 1
 
     return {
@@ -106,15 +96,7 @@ def calculate_order_statistics(order_data):
 
 def transform_order_data(orders):
     """
-    Transform Evermore order book data to OpenAlgo standardized format.
-
-    Maps Evermore fields → OpenAlgo fields:
-    - IntOrdNo → orderid
-    - BuySell → action
-    - OrderPrice → price
-    - TriggerPrice → trigger_price
-    - OrderStatus → order_status (mapped)
-    - OrderTime → timestamp
+    Transform Evermore order data to OpenAlgo standard format.
     """
     if isinstance(orders, dict):
         orders = [orders]
@@ -123,32 +105,26 @@ def transform_order_data(orders):
 
     for order in orders:
         if not isinstance(order, dict):
-            logger.warning(f"Expected dict, found {type(order)}. Skipping.")
+            logger.warning(f"Expected a dict, but found a {type(order)}. Skipping.")
             continue
 
-        # Map Evermore Booktype → OpenAlgo pricetype
-        booktype = order.get("Booktype", "RL")
-        trigger_price = float(order.get("TriggerPrice", 0))
-
-        if booktype == "SL" and trigger_price > 0:
-            price = float(order.get("OrderPrice", 0))
-            pricetype = "SL" if price > 0 else "SL-M"
-        else:
-            price = float(order.get("OrderPrice", 0))
-            pricetype = "LIMIT" if price > 0 else "MARKET"
+        order_status = _normalize_status(order.get("OrderStatus", ""))
 
         transformed_order = {
-            "symbol": order.get("tradingsymbol", ""),
-            "exchange": order.get("exchange", ""),
-            "action": order.get("BuySell", "").upper(),
-            "quantity": order.get("QtyRemaining", 0) + order.get("QtyTraded", 0),
-            "price": order.get("OrderPrice", 0.0),
-            "trigger_price": trigger_price,
-            "pricetype": pricetype,
-            "product": order.get("producttype", ""),
+            "symbol": order.get("tradingsymbol", str(order.get("TokenNo", ""))),
+            "exchange": order.get("exchange", reverse_map_exchange(order.get("Exchange", ""))),
+            "action": order.get("BuySell", order.get("Buysell", "")).upper(),
+            "quantity": int(float(order.get("QtyRemaining", 0)) + float(order.get("QtyTraded", 0))),
+            "price": float(order.get("OrderPrice", 0)),
+            "trigger_price": float(order.get("TriggerPrice", 0)),
+            "pricetype": "SL" if float(order.get("TriggerPrice", 0)) > 0 else "LIMIT",
+            "product": reverse_map_product_type(
+                order.get("exchange", ""),
+                order.get("DeliveryType", 0)
+            ),
             "orderid": str(order.get("IntOrdNo", "")),
-            "order_status": order.get("status", ""),
-            "timestamp": order.get("OrderTime", ""),
+            "order_status": order_status,
+            "timestamp": str(order.get("OrderTime", "")),
         }
 
         transformed_orders.append(transformed_order)
@@ -157,102 +133,122 @@ def transform_order_data(orders):
 
 
 def map_trade_data(trade_data):
-    """
-    Process Evermore TradeBookRequest response.
-
-    Evermore trade fields:
-    IntOrdNo, TokenNo, QtyTraded, TradePrice, TradeTime, ExchOrdNo, TradeNo, BuySell
-    """
-    if not trade_data:
-        logger.info("No trade data available.")
-        return []
-
-    trades = trade_data if isinstance(trade_data, list) else [trade_data]
-
-    for trade in trades:
-        token_no = str(trade.get("TokenNo", ""))
-        exchange = trade.get("Exchange", "")
-        oa_exchange = reverse_map_exchange(exchange)
-
-        symbol_from_db = get_symbol(token_no, oa_exchange)
-        if symbol_from_db:
-            trade["tradingsymbol"] = symbol_from_db
-        else:
-            trade["tradingsymbol"] = trade.get("Symbol", "")
-
-        trade["exchange"] = oa_exchange
-
-        delivery_type = trade.get("DeliveryType", 0)
-        trade["producttype"] = reverse_map_product_type_with_exchange(delivery_type, exchange)
-
-    return trades
+    """Map trade data - same logic as order data mapping."""
+    return map_order_data(trade_data)
 
 
 def transform_tradebook_data(tradebook_data):
-    """Transform Evermore trade data to OpenAlgo standardized format."""
+    """Transform Evermore trade data to OpenAlgo format."""
     transformed_data = []
+
+    if not tradebook_data:
+        return transformed_data
+
     for trade in tradebook_data:
         transformed_trade = {
-            "symbol": trade.get("tradingsymbol", ""),
-            "exchange": trade.get("exchange", ""),
-            "product": trade.get("producttype", ""),
-            "action": trade.get("BuySell", "").upper(),
-            "quantity": trade.get("QtyTraded", 0),
-            "average_price": trade.get("TradePrice", 0.0),
+            "symbol": trade.get("tradingsymbol", str(trade.get("TokenNo", ""))),
+            "exchange": trade.get("exchange", reverse_map_exchange(trade.get("Exchange", ""))),
+            "product": reverse_map_product_type(
+                trade.get("exchange", ""),
+                trade.get("DeliveryType", 0)
+            ),
+            "action": trade.get("BuySell", trade.get("Buysell", "")).upper(),
+            "quantity": int(float(trade.get("QtyTraded", 0))),
+            "average_price": float(trade.get("TradePrice", 0)),
             "trade_value": float(trade.get("QtyTraded", 0)) * float(trade.get("TradePrice", 0)),
             "orderid": str(trade.get("IntOrdNo", "")),
-            "timestamp": trade.get("TradeTime", ""),
+            "timestamp": str(trade.get("TradeTime", "")),
         }
         transformed_data.append(transformed_trade)
+
     return transformed_data
 
 
 def map_position_data(position_data):
     """
-    Process Evermore PositionRequest response.
-
-    Evermore position fields: TokenNo, ClientCode, Qty, Average
+    Processes and modifies a list of position dictionaries from Evermore.
     """
-    if not position_data:
+    if position_data is None:
         logger.info("No position data available.")
         return []
 
-    positions = position_data if isinstance(position_data, list) else [position_data]
+    # Evermore returns a direct list
+    if isinstance(position_data, dict):
+        if "data" in position_data:
+            position_data = position_data["data"]
+            if isinstance(position_data, dict) and "net" in position_data:
+                position_data = position_data["net"]
 
-    for position in positions:
+    if not position_data:
+        return []
+
+    for position in position_data:
         token_no = str(position.get("TokenNo", ""))
-        exchange = position.get("Exchange", "")
-        oa_exchange = reverse_map_exchange(exchange)
+        exchange = reverse_map_exchange(position.get("Exchange", ""))
 
-        symbol_from_db = get_symbol(token_no, oa_exchange)
-        if symbol_from_db:
-            position["tradingsymbol"] = symbol_from_db
-        else:
-            position["tradingsymbol"] = position.get("Symbol", "")
+        if token_no:
+            oa_symbol = get_symbol(token_no, exchange)
+            if oa_symbol:
+                position["tradingsymbol"] = oa_symbol
+            else:
+                position["tradingsymbol"] = token_no
+        position["exchange"] = exchange
 
-        position["exchange"] = oa_exchange
-
-        delivery_type = position.get("DeliveryType", 0)
-        position["producttype"] = reverse_map_product_type_with_exchange(delivery_type, exchange)
-
-    return positions
+    return position_data
 
 
 def transform_positions_data(positions_data):
-    """Transform Evermore position data to OpenAlgo standardized format."""
+    """Transform Evermore position data to OpenAlgo format."""
     transformed_data = []
+
+    if not positions_data:
+        return transformed_data
+
     for position in positions_data:
-        qty = int(position.get("Qty", 0))
-        avg_price = float(position.get("Average", 0))
+        average_price = float(position.get("Average", 0))
+        average_price_formatted = "{:.2f}".format(average_price)
 
         transformed_position = {
-            "symbol": position.get("tradingsymbol", ""),
-            "exchange": position.get("exchange", ""),
-            "product": position.get("producttype", ""),
-            "quantity": qty,
-            "average_price": avg_price,
-            "ltp": position.get("ltp", 0.0),
-            "pnl": position.get("pnl", 0.0),
+            "symbol": position.get("tradingsymbol", str(position.get("TokenNo", ""))),
+            "exchange": position.get("exchange", reverse_map_exchange(position.get("Exchange", ""))),
+            "product": reverse_map_product_type(
+                position.get("exchange", ""),
+                position.get("DeliveryType", 0)
+            ),
+            "quantity": str(int(float(position.get("Qty", 0)))),
+            "pnl": 0.0,  # Evermore doesn't provide PnL in positions
+            "average_price": average_price_formatted,
+            "ltp": 0.0,  # Evermore doesn't provide LTP in position response
         }
         transformed_data.append(transformed_position)
+
     return transformed_data
+
+
+def transform_holdings_data(holdings_data):
+    """
+    Evermore does not provide a holdings API.
+    Returns empty list.
+    """
+    return []
+
+
+def map_portfolio_data(portfolio_data):
+    """
+    Evermore does not provide a portfolio/holdings API.
+    Returns empty list.
+    """
+    return []
+
+
+def calculate_portfolio_statistics(holdings_data):
+    """
+    Calculate portfolio statistics.
+    Returns zeros since Evermore has no holdings API.
+    """
+    return {
+        "totalholdingvalue": 0,
+        "totalinvvalue": 0,
+        "totalprofitandloss": 0,
+        "totalpnlpercentage": 0,
+    }

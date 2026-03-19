@@ -95,6 +95,23 @@ const brokerFields: Record<string, BrokerConfig> = {
     ],
     callbackUrl: '/definedge/callback',
   },
+  evermore: {
+    fields: [
+      {
+        name: 'userid',
+        label: 'Login ID',
+        type: 'text',
+        placeholder: 'Enter your Evermore Login ID',
+      },
+      {
+        name: 'pin',
+        label: 'Password',
+        type: 'password',
+        placeholder: 'Enter your Evermore Password',
+      },
+    ],
+    callbackUrl: '/evermore/callback',
+  },
   firstock: {
     fields: [
       { name: 'userid', label: 'User ID', type: 'text', placeholder: 'Enter your User ID' },

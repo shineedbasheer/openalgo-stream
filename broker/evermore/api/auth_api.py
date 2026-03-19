@@ -1,3 +1,6 @@
+# Mapping OpenAlgo API Authentication
+# Mapping Evermore (AutoTradeTech) Login API
+
 import json
 import os
 
@@ -6,96 +9,84 @@ from utils.logging import get_logger
 
 logger = get_logger(__name__)
 
-# Evermore REST API base URL
-# The PDF doc references ../api/PublicAPI/{method}
-# Actual base URL should be configured via env var
-DEFAULT_API_URL = "https://feedapi.com"
 
-
-def get_api_url():
-    """Get Evermore REST API base URL from environment"""
-    return os.getenv("EVERMORE_API_URL", DEFAULT_API_URL)
-
-
-def authenticate_broker(login_id, password, totp_code=None):
+def authenticate_broker(request_token):
     """
-    Authenticate with Evermore broker via LoginRequest API.
+    Authenticate with the Evermore (AutoTradeTech) broker API.
 
-    Evermore uses LoginId + Password authentication.
-    Returns UniqueId and RefNo which are needed for all subsequent API calls.
+    Evermore uses a simple LoginId + Password authentication flow.
+    - LoginId comes from BROKER_API_KEY env var
+    - Password comes from BROKER_API_SECRET env var
+    - request_token is not used for OAuth (Evermore has no OAuth flow)
 
-    The auth token is stored as "UniqueId:RefNo" format.
-    The feed token stores "LoginId:Password" for the streaming WebSocket.
-
-    Args:
-        login_id: Evermore Login ID
-        password: Evermore Password
-        totp_code: Not used by Evermore (kept for interface compatibility)
-
-    Returns:
-        (auth_token, feed_token, error_message)
+    Returns a JSON-encoded auth token containing UniqueId and RefNo.
     """
     try:
-        client = get_httpx_client()
+        LOGIN_ID = os.getenv("BROKER_API_KEY")
+        PASSWORD = os.getenv("BROKER_API_SECRET")
+        BASE_URL = os.getenv("EVERMORE_BASE_URL", "http://192.168.6.164:16006")
 
-        base_url = get_api_url()
-        url = f"{base_url}/api/PublicAPI/LoginRequest"
+        if not LOGIN_ID or not PASSWORD:
+            return None, "BROKER_API_KEY (LoginId) and BROKER_API_SECRET (Password) must be set in .env"
 
-        payload = json.dumps({
-            "LoginId": login_id,
-            "Password": password,
-        })
+        url = f"{BASE_URL}/api/PublicAPI/LoginRequest"
 
-        headers = {
-            "Content-Type": "application/json",
-            "Accept": "application/json",
+        payload = {
+            "LoginId": LOGIN_ID,
+            "Password": PASSWORD,
         }
 
-        response = client.post(url, headers=headers, content=payload)
-        response.status = response.status_code
+        # Get the shared httpx client with connection pooling
+        client = get_httpx_client()
 
-        if response.status_code != 200:
-            return None, None, f"HTTP {response.status_code}: {response.text}"
+        headers = {"Content-Type": "application/json"}
 
-        data = response.json()
+        try:
+            response = client.post(url, headers=headers, json=payload)
+            response.raise_for_status()
 
-        error = data.get("Error", "")
-        if error:
-            logger.error(f"Evermore login failed: {error}")
-            return None, None, f"Login failed: {error}"
+            response_data = response.json()
+            logger.info(f"Evermore login response: UniqueId={response_data.get('UniqueId')}")
 
-        unique_id = data.get("UniqueId")
-        ref_no = data.get("RefNo")
+            unique_id = response_data.get("UniqueId", 0)
+            ref_no = response_data.get("RefNo", "")
+            error = response_data.get("Error")
 
-        if unique_id is None or not ref_no:
-            return None, None, "Login response missing UniqueId or RefNo"
+            if unique_id > 0 and ref_no:
+                # Store both UniqueId and RefNo as JSON-encoded auth token
+                auth_token = json.dumps({
+                    "UniqueId": unique_id,
+                    "RefNo": ref_no,
+                    "LoginId": LOGIN_ID,
+                })
+                return auth_token, None
+            else:
+                error_msg = error if error else "Login failed: UniqueId=0 or RefNo empty"
+                return None, f"Evermore authentication failed: {error_msg}"
 
-        # Store auth as "UniqueId:RefNo" — both needed for every API call
-        auth_token = f"{unique_id}:{ref_no}"
-
-        # Feed token stores credentials for WebSocket streaming
-        # The streaming adapter expects "login_id:password" format
-        feed_token = f"{login_id}:{password}"
-
-        logger.info(f"Evermore login successful. UniqueId={unique_id}")
-        return auth_token, feed_token, None
+        except Exception as e:
+            error_message = str(e)
+            try:
+                if hasattr(e, "response") and e.response is not None:
+                    error_detail = e.response.json()
+                    error_message = error_detail.get("Error", str(e))
+            except Exception:
+                pass
+            return None, f"API error: {error_message}"
 
     except Exception as e:
-        logger.error(f"Evermore authentication error: {e}")
-        return None, None, str(e)
+        return None, f"An exception occurred: {str(e)}"
 
 
-def parse_auth_token(auth_token):
+def get_evermore_auth(auth_token):
     """
-    Parse the stored auth token into UniqueId and RefNo.
-
-    Args:
-        auth_token: Stored as "UniqueId:RefNo"
+    Parse the JSON-encoded auth token to extract Evermore credentials.
 
     Returns:
-        (unique_id, ref_no) tuple
+        dict with keys: UniqueId (int), RefNo (str), LoginId (str)
     """
-    parts = auth_token.split(":", 1)
-    if len(parts) != 2:
-        raise ValueError(f"Invalid Evermore auth token format: expected 'UniqueId:RefNo'")
-    return int(parts[0]), parts[1]
+    try:
+        return json.loads(auth_token)
+    except (json.JSONDecodeError, TypeError):
+        logger.error("Failed to parse Evermore auth token")
+        return {"UniqueId": 0, "RefNo": "", "LoginId": ""}

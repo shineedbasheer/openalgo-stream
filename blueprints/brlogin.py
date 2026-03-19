@@ -687,18 +687,12 @@ def broker_callback(broker, para=None):
                 forward_url = "broker.html"
 
     elif broker == "evermore":
-        if request.method == "GET":
-            # Redirect to React TOTP page (used for LoginId + Password entry)
-            return redirect("/broker/evermore/totp")
-
-        elif request.method == "POST":
-            login_id = request.form.get("userid") or request.form.get("clientid")
-            password = request.form.get("pin")
-            # totp_code not used by Evermore but kept for interface compatibility
-            totp_code = request.form.get("totp")
-            user_id = login_id
-            auth_token, feed_token, error_message = auth_function(login_id, password, totp_code)
-            forward_url = "broker.html"
+        # Evermore uses LoginId/Password from .env (BROKER_API_KEY / BROKER_API_SECRET)
+        # No OAuth redirect or TOTP form needed — authenticate directly
+        user_id = os.getenv("BROKER_API_KEY", "")
+        auth_token, error_message = auth_function(None)  # reads creds from .env
+        feed_token = None
+        forward_url = "broker.html"
 
     else:
         code = request.args.get("code") or request.args.get("request_token")

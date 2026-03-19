@@ -22,6 +22,7 @@ const allBrokers = [
   { id: 'angel', name: 'Angel One', authType: 'totp' },
   { id: 'compositedge', name: 'CompositEdge', authType: 'oauth' },
   { id: 'dhan', name: 'Dhan', authType: 'oauth' },
+  { id: 'evermore', name: 'Evermore', authType: 'totp' },
   { id: 'indmoney', name: 'IndMoney', authType: 'totp' },
   { id: 'dhan_sandbox', name: 'Dhan (Sandbox)', authType: 'totp' },
   { id: 'definedge', name: 'Definedge', authType: 'totp' },
@@ -138,6 +139,7 @@ export default function BrokerSelect() {
       case 'jainamxts':
       case 'dhan_sandbox':
       case 'definedge':
+      case 'evermore':
       case 'firstock':
       case 'samco':
       case 'motilal':

@@ -1,132 +1,155 @@
+# Evermore (AutoTradeTech) Order API
+# All endpoints use POST with JSON body
+
 import json
 import os
 
-from broker.evermore.api.auth_api import get_api_url, parse_auth_token
+from broker.evermore.api.auth_api import get_evermore_auth
 from broker.evermore.mapping.transform_data import (
+    map_exchange,
     map_product_type,
     reverse_map_exchange,
-    reverse_map_product_type_with_exchange,
+    reverse_map_product_type,
     transform_data,
     transform_modify_order_data,
 )
-from database.token_db import get_symbol, get_token
+from database.token_db import get_br_symbol, get_oa_symbol, get_token
 from utils.httpx_client import get_httpx_client
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
 
 
-def _get_headers():
-    """Standard headers for Evermore API requests"""
-    return {
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-    }
+def _get_base_url():
+    """Get Evermore REST API base URL from environment."""
+    return os.getenv("EVERMORE_BASE_URL", "http://192.168.6.164:16006")
 
 
-def _make_request(endpoint, auth, extra_data=None):
+def _post_request(endpoint, payload):
     """
-    Make an authenticated request to Evermore REST API.
-
-    All Evermore API calls require UniqueId and RefNo from login.
+    Make a POST request to Evermore API.
 
     Args:
-        endpoint: API method name (e.g., "OrderEntry", "OrderBookRequest")
-        auth: Auth token in "UniqueId:RefNo" format
-        extra_data: Additional fields to include in the request body
+        endpoint: API endpoint path (e.g., '/api/PublicAPI/OrderEntry')
+        payload: JSON payload dict
 
     Returns:
-        Parsed JSON response dict
+        dict: Parsed JSON response
     """
-    unique_id, ref_no = parse_auth_token(auth)
+    base_url = _get_base_url()
+    url = f"{base_url}{endpoint}"
+
     client = get_httpx_client()
-
-    base_url = get_api_url()
-    url = f"{base_url}/api/PublicAPI/{endpoint}"
-
-    payload = {
-        "UniqueId": unique_id,
-        "RefNo": ref_no,
-    }
-    if extra_data:
-        payload.update(extra_data)
+    headers = {"Content-Type": "application/json"}
 
     try:
-        response = client.post(url, headers=_get_headers(), content=json.dumps(payload))
-        response.status = response.status_code
-
-        if not response.text:
-            return {}
-
-        return json.loads(response.text)
-    except json.JSONDecodeError:
-        logger.error(f"Failed to parse JSON from {endpoint}: {response.text}")
-        return {}
+        response = client.post(url, headers=headers, json=payload)
+        response.raise_for_status()
+        return response.json()
     except Exception as e:
-        logger.error(f"Request to {endpoint} failed: {e}")
-        return {}
+        error_msg = str(e)
+        try:
+            if hasattr(e, "response") and e.response is not None:
+                error_detail = e.response.json()
+                error_msg = error_detail.get("Error", str(e))
+        except Exception:
+            pass
+        logger.exception(f"Evermore API request failed: {error_msg}")
+        raise
 
 
 def get_order_book(auth):
-    """Fetch order book from Evermore"""
-    return _make_request("OrderBookRequest", auth)
+    """Fetch today's orders from Evermore."""
+    creds = get_evermore_auth(auth)
+
+    payload = {
+        "UniqueId": creds["UniqueId"],
+        "RefNo": creds["RefNo"],
+        "Error": "",
+    }
+
+    try:
+        response_data = _post_request("/api/PublicAPI/OrderBookRequest", payload)
+        # Evermore returns a direct list. Wrap for consistent handling.
+        if isinstance(response_data, list):
+            return {"status": "success", "data": response_data}
+        return response_data
+    except Exception as e:
+        logger.error(f"Error fetching order book: {e}")
+        return {"status": "error", "data": None}
 
 
 def get_trade_book(auth):
-    """Fetch trade book from Evermore"""
-    return _make_request("TradeBookRequest", auth)
+    """Fetch today's trades from Evermore."""
+    creds = get_evermore_auth(auth)
+
+    payload = {
+        "UniqueId": creds["UniqueId"],
+        "RefNo": creds["RefNo"],
+        "Error": "",
+    }
+
+    try:
+        response_data = _post_request("/api/PublicAPI/TradeBookRequest", payload)
+        if isinstance(response_data, list):
+            return {"status": "success", "data": response_data}
+        return response_data
+    except Exception as e:
+        logger.error(f"Error fetching trade book: {e}")
+        return {"status": "error", "data": None}
 
 
 def get_positions(auth):
-    """Fetch positions from Evermore"""
-    return _make_request("PositionRequest", auth)
+    """Fetch current positions from Evermore."""
+    creds = get_evermore_auth(auth)
+
+    payload = {
+        "Uniqueid": creds["UniqueId"],  # Note: lowercase 'i' per Evermore API
+        "RefNo": creds["RefNo"],
+        "Error": "",
+        "ClientCode": "",  # Empty for PRO account
+    }
+
+    try:
+        response_data = _post_request("/api/PublicAPI/PositionRequest", payload)
+        if isinstance(response_data, list):
+            # Wrap in Zerodha-compatible structure for map_position_data
+            return {"status": True, "data": {"net": response_data}}
+        return response_data
+    except Exception as e:
+        logger.error(f"Error fetching positions: {e}")
+        return {"status": False, "data": {"net": None}}
 
 
 def get_holdings(auth):
     """
-    Fetch holdings from Evermore.
-
-    NOTE: Evermore REST API doc does not include a holdings endpoint.
-    Returns empty data structure for compatibility.
+    Evermore does not provide a holdings API.
+    Returns empty structure compatible with OpenAlgo.
     """
-    logger.warning("Evermore does not provide a holdings API")
-    return {"status": False, "data": None, "message": "Holdings API not available for Evermore"}
+    return {"status": "success", "data": []}
 
 
-def get_open_position(tradingsymbol, exchange, product_type, auth):
+def get_open_position(tradingsymbol, exchange, product, auth):
     """
-    Get net quantity for a specific open position.
-
-    Args:
-        tradingsymbol: OpenAlgo symbol
-        exchange: OpenAlgo exchange code
-        product_type: Evermore DeliveryType (0 or 1)
-        auth: Auth token
-
-    Returns:
-        Net quantity as string
+    Get the net quantity of an open position for a specific symbol.
     """
+    tradingsymbol = get_br_symbol(tradingsymbol, exchange)
     token = get_token(tradingsymbol, exchange)
+
     positions_data = get_positions(auth)
-
-    logger.debug(f"Positions response: {positions_data}")
-
     net_qty = "0"
 
-    if positions_data and isinstance(positions_data, list):
-        for position in positions_data:
-            pos_token = str(position.get("TokenNo", ""))
-            if pos_token == str(token):
-                net_qty = str(position.get("Qty", 0))
-                break
-    elif positions_data and isinstance(positions_data, dict):
-        # Single position or wrapped response
-        data = positions_data.get("data", positions_data)
-        if isinstance(data, list):
-            for position in data:
+    if positions_data and positions_data.get("data"):
+        position_list = positions_data["data"]
+        if isinstance(position_list, dict) and "net" in position_list:
+            position_list = position_list["net"]
+
+        if position_list:
+            for position in position_list:
                 pos_token = str(position.get("TokenNo", ""))
                 if pos_token == str(token):
-                    net_qty = str(position.get("Qty", 0))
+                    net_qty = str(int(float(position.get("Qty", 0))))
+                    logger.info(f"Net Quantity for {tradingsymbol}: {net_qty}")
                     break
 
     return net_qty
@@ -134,32 +157,26 @@ def get_open_position(tradingsymbol, exchange, product_type, auth):
 
 def place_order_api(data, auth):
     """
-    Place an order via Evermore OrderEntry API.
+    Place a new order on Evermore.
 
     Args:
-        data: OpenAlgo order dict
-        auth: Auth token in "UniqueId:RefNo" format
+        data: OpenAlgo order data
+        auth: JSON-encoded auth token
 
     Returns:
-        (response, response_data, order_id)
+        tuple: (response_obj, response_data, orderid)
     """
-    unique_id, ref_no = parse_auth_token(auth)
-    token = get_token(data["symbol"], data["exchange"])
-    newdata = transform_data(data, token)
+    creds = get_evermore_auth(auth)
+    newdata = transform_data(data)
 
-    client = get_httpx_client()
-    base_url = get_api_url()
-    url = f"{base_url}/api/PublicAPI/OrderEntry"
-
-    # Build Evermore OrderEntry payload
-    payload = json.dumps({
-        "UniqueId": unique_id,
-        "LoginId": os.getenv("EVERMORE_LOGIN_ID", ""),
-        "RefNo": ref_no,
+    payload = {
+        "Uniqueid": creds["UniqueId"],  # Note: lowercase 'i'
+        "LoginId": creds["LoginId"],
+        "RefNo": creds["RefNo"],
         "gateway": newdata["gateway"],
         "Exchange": newdata["Exchange"],
         "Tokenno": newdata["Tokenno"],
-        "clientcode": "",  # Default client code
+        "clientcode": "",  # Empty for PRO account
         "Buysell": newdata["Buysell"],
         "qty": newdata["qty"],
         "qtydisclosed": newdata["qtydisclosed"],
@@ -168,257 +185,213 @@ def place_order_api(data, auth):
         "Booktype": newdata["Booktype"],
         "validity": newdata["validity"],
         "DeliveryType": newdata["DeliveryType"],
-    })
+    }
 
-    logger.debug(f"Order payload: {payload}")
+    logger.info(f"Evermore place_order payload: {payload}")
 
-    response = client.post(url, headers=_get_headers(), content=payload)
-    response.status = response.status_code
+    try:
+        response_data = _post_request("/api/PublicAPI/OrderEntry", payload)
+        logger.info(f"Evermore place_order response: {response_data}")
 
-    response_data = response.json()
+        int_ord_no = response_data.get("IntOrdNo", 0)
+        error = response_data.get("Error")
 
-    # Evermore returns IntOrdNo on success, Error on failure
-    error = response_data.get("Error", "")
-    if error:
-        logger.error(f"Order placement failed: {error}")
-        orderid = None
-    else:
-        orderid = str(response_data.get("IntOrdNo", ""))
-        logger.info(f"Order placed successfully: {orderid}")
+        if int_ord_no and int_ord_no > 0:
+            orderid = str(int_ord_no)
+            result = {"status": "success", "orderid": orderid}
+        else:
+            orderid = None
+            error_msg = error if error else "Order placement failed"
+            result = {"status": "error", "message": error_msg}
 
-    return response, response_data, orderid
+        # Create a mock response object with status attribute for compatibility
+        class MockResponse:
+            def __init__(self, status_code):
+                self.status = status_code
+                self.status_code = status_code
+
+        res = MockResponse(200 if orderid else 400)
+        return res, result, orderid
+
+    except Exception as e:
+        logger.exception(f"Error placing order: {e}")
+
+        class MockResponse:
+            def __init__(self):
+                self.status = 500
+                self.status_code = 500
+
+        return MockResponse(), {"status": "error", "message": str(e)}, None
 
 
 def place_smartorder_api(data, auth):
     """
-    Place a smart order that adjusts position to target size.
-
-    Smart order logic:
-    - If position_size matches current position, do nothing
-    - If position needs adjustment, calculate and place appropriate order
+    Intelligent position management - calculates quantity based on desired position size.
     """
     AUTH_TOKEN = auth
-
     res = None
-    symbol = data.get("symbol")
-    exchange = data.get("exchange")
-    product = data.get("product")
-    position_size = int(data.get("position_size", "0"))
+    response_data = {"status": "error", "message": "No action required or invalid parameters"}
+    orderid = None
 
-    current_position = int(
-        get_open_position(symbol, exchange, map_product_type(product), AUTH_TOKEN)
-    )
+    try:
+        symbol = data.get("symbol")
+        exchange = data.get("exchange")
+        product = data.get("product")
 
-    logger.info(f"position_size : {position_size}")
-    logger.info(f"Open Position : {current_position}")
+        if not all([symbol, exchange, product]):
+            logger.info("Missing required parameters in place_smartorder_api")
+            return res, response_data, orderid
 
-    action = None
-    quantity = 0
+        position_size = int(data.get("position_size", "0"))
 
-    if position_size == 0 and current_position == 0 and int(data["quantity"]) != 0:
-        action = data["action"]
-        quantity = data["quantity"]
-        res, response, orderid = place_order_api(data, AUTH_TOKEN)
-        return res, response, orderid
+        # Get current open position
+        current_position = int(get_open_position(symbol, exchange, product, AUTH_TOKEN))
 
-    elif position_size == current_position:
-        if int(data["quantity"]) == 0:
-            response = {
-                "status": "success",
-                "message": "No OpenPosition Found. Not placing Exit order.",
-            }
-        else:
-            response = {
-                "status": "success",
-                "message": "No action needed. Position size matches current position",
-            }
-        orderid = None
-        return res, response, orderid
+        logger.info(f"position_size: {position_size}")
+        logger.info(f"Open Position: {current_position}")
 
-    if position_size == 0 and current_position > 0:
-        action = "SELL"
-        quantity = abs(current_position)
-    elif position_size == 0 and current_position < 0:
-        action = "BUY"
-        quantity = abs(current_position)
-    elif current_position == 0:
-        action = "BUY" if position_size > 0 else "SELL"
-        quantity = abs(position_size)
-    else:
-        if position_size > current_position:
-            action = "BUY"
-            quantity = position_size - current_position
-        elif position_size < current_position:
+        action = None
+        quantity = 0
+
+        if position_size == 0 and current_position > 0:
             action = "SELL"
-            quantity = current_position - position_size
+            quantity = abs(current_position)
+        elif position_size == 0 and current_position < 0:
+            action = "BUY"
+            quantity = abs(current_position)
+        elif current_position == 0:
+            action = "BUY" if position_size > 0 else "SELL"
+            quantity = abs(position_size)
+        else:
+            if position_size > current_position:
+                action = "BUY"
+                quantity = position_size - current_position
+            elif position_size < current_position:
+                action = "SELL"
+                quantity = current_position - position_size
 
-    if action:
-        order_data = data.copy()
-        order_data["action"] = action
-        order_data["quantity"] = str(quantity)
+        if action and quantity > 0:
+            order_data = data.copy()
+            order_data["action"] = action
+            order_data["quantity"] = str(quantity)
+            res, response, orderid = place_order_api(order_data, AUTH_TOKEN)
+            return res, response, orderid
+        else:
+            logger.info("No action required or invalid quantity")
+            response_data = {"status": "success", "message": "No action required"}
+            return res, response_data, orderid
 
-        res, response, orderid = place_order_api(order_data, auth)
-        logger.info(f"{response}")
-        logger.info(f"{orderid}")
-
-        return res, response, orderid
-
-
-def close_all_positions(current_api_key, auth):
-    """Close all open positions by placing counter orders"""
-    AUTH_TOKEN = auth
-
-    positions_response = get_positions(AUTH_TOKEN)
-
-    # Handle various response formats
-    positions = None
-    if isinstance(positions_response, list):
-        positions = positions_response
-    elif isinstance(positions_response, dict):
-        positions = positions_response.get("data")
-
-    if not positions:
-        return {"message": "No Open Positions Found"}, 200
-
-    for position in positions:
-        qty = int(position.get("Qty", 0))
-        if qty == 0:
-            continue
-
-        action = "SELL" if qty > 0 else "BUY"
-        quantity = abs(qty)
-
-        token_no = str(position.get("TokenNo", ""))
-        exchange = position.get("Exchange", "")
-        oa_exchange = reverse_map_exchange(exchange)
-
-        symbol = get_symbol(token_no, oa_exchange)
-        if not symbol:
-            logger.warning(f"Cannot resolve symbol for token {token_no}, skipping")
-            continue
-
-        logger.info(f"Closing position: {symbol} qty={quantity} action={action}")
-
-        delivery_type = position.get("DeliveryType", 0)
-        product = reverse_map_product_type_with_exchange(delivery_type, exchange)
-
-        place_order_payload = {
-            "apikey": current_api_key,
-            "strategy": "Squareoff",
-            "symbol": symbol,
-            "action": action,
-            "exchange": oa_exchange,
-            "pricetype": "MARKET",
-            "product": product,
-            "quantity": str(quantity),
-        }
-
-        logger.info(f"Squareoff payload: {place_order_payload}")
-        res, response, orderid = place_order_api(place_order_payload, auth)
-
-    return {"status": "success", "message": "All Open Positions SquaredOff"}, 200
-
-
-def cancel_order(orderid, auth):
-    """
-    Cancel an order via Evermore CancelRequest API.
-
-    Args:
-        orderid: Evermore IntOrdNo
-        auth: Auth token
-
-    Returns:
-        (response_dict, status_code)
-    """
-    unique_id, ref_no = parse_auth_token(auth)
-    client = get_httpx_client()
-    base_url = get_api_url()
-    url = f"{base_url}/api/PublicAPI/CancelRequest"
-
-    payload = json.dumps({
-        "UniqueId": unique_id,
-        "RefNo": ref_no,
-        "IntOrdNo": str(orderid),
-    })
-
-    response = client.post(url, headers=_get_headers(), content=payload)
-    response.status = response.status_code
-
-    data = json.loads(response.text)
-
-    error = data.get("Error", "")
-    if error:
-        return {"status": "error", "message": f"Cancel failed: {error}"}, response.status
-    else:
-        return {"status": "success", "orderid": str(data.get("IntOrdNo", orderid))}, 200
+    except Exception as e:
+        error_msg = f"Error in place_smartorder_api: {e}"
+        logger.exception(error_msg)
+        response_data = {"status": "error", "message": error_msg}
+        return res, response_data, orderid
 
 
 def modify_order(data, auth):
     """
-    Modify an order via Evermore ModifyRequest API.
+    Modify an existing order on Evermore.
 
     Args:
-        data: Order modification dict with orderid, quantity, price, etc.
-        auth: Auth token
+        data: OpenAlgo modify order data (must include 'orderid')
+        auth: JSON-encoded auth token
 
     Returns:
-        (response_dict, status_code)
+        tuple: (response_data, status_code)
     """
-    unique_id, ref_no = parse_auth_token(auth)
-    client = get_httpx_client()
-    base_url = get_api_url()
-    url = f"{base_url}/api/PublicAPI/ModifyRequest"
+    creds = get_evermore_auth(auth)
+    newdata = transform_modify_order_data(data)
 
-    token = get_token(data["symbol"], data["exchange"])
-    transformed = transform_modify_order_data(data, token)
+    payload = {
+        "Uniqueid": creds["UniqueId"],  # Note: lowercase 'i'
+        "RefNo": creds["RefNo"],
+        "IntordNo": int(data["orderid"]),  # Note: lowercase 'o'
+        "qty": newdata["qty"],
+        "qtydisclosed": newdata["qtydisclosed"],
+        "Price": newdata["Price"],
+        "TriggerPrice": newdata["TriggerPrice"],  # Note: capital T and P
+        "Booktype": newdata["Booktype"],
+        "Validity": newdata["Validity"],  # Note: capital V
+    }
 
-    payload = json.dumps({
-        "UniqueId": unique_id,
-        "RefNo": ref_no,
-        "IntordNo": transformed["IntordNo"],
-        "qty": transformed["qty"],
-        "qtydisclosed": transformed["qtydisclosed"],
-        "Price": transformed["Price"],
-        "TriggerPrice": transformed["TriggerPrice"],
-        "Booktype": transformed["Booktype"],
-        "Validity": transformed["Validity"],
-    })
+    logger.info(f"Evermore modify_order payload: {payload}")
 
-    response = client.post(url, headers=_get_headers(), content=payload)
-    response.status = response.status_code
+    try:
+        response_data = _post_request("/api/PublicAPI/ModifyRequest", payload)
+        logger.info(f"Evermore modify_order response: {response_data}")
 
-    resp_data = json.loads(response.text)
+        int_ord_no = response_data.get("IntOrdNo", 0)
+        error = response_data.get("Error")
 
-    error = resp_data.get("Error", "")
-    if error:
-        return {"status": "error", "message": f"Modify failed: {error}"}, response.status
-    else:
-        return {"status": "success", "orderid": str(resp_data.get("IntOrdNo", ""))}, 200
+        if int_ord_no and int_ord_no > 0:
+            return {"status": "success", "orderid": str(int_ord_no)}, 200
+        else:
+            error_msg = error if error else "Failed to modify order"
+            return {"status": "error", "message": error_msg}, 400
+
+    except Exception as e:
+        logger.exception(f"Error modifying order: {e}")
+        return {"status": "error", "message": f"Failed to modify order: {str(e)}"}, 500
+
+
+def cancel_order(orderid, auth):
+    """
+    Cancel an existing order on Evermore.
+
+    Args:
+        orderid: The IntOrdNo of the order to cancel
+        auth: JSON-encoded auth token
+
+    Returns:
+        tuple: (response_data, status_code)
+    """
+    creds = get_evermore_auth(auth)
+
+    payload = {
+        "UniqueId": creds["UniqueId"],  # Note: capital 'I' for CancelRequest
+        "RefNo": creds["RefNo"],
+        "IntOrdNo": int(orderid),  # Note: capital 'O' for CancelRequest
+    }
+
+    logger.info(f"Evermore cancel_order payload: {payload}")
+
+    try:
+        response_data = _post_request("/api/PublicAPI/CancelRequest", payload)
+        logger.info(f"Evermore cancel_order response: {response_data}")
+
+        int_ord_no = response_data.get("IntOrdNo", 0)
+        error = response_data.get("Error")
+
+        if int_ord_no and int_ord_no > 0:
+            return {"status": "success", "orderid": str(int_ord_no)}, 200
+        else:
+            error_msg = error if error else "Failed to cancel order"
+            return {"status": "error", "message": error_msg}, 400
+
+    except Exception as e:
+        logger.exception(f"Error canceling order {orderid}: {e}")
+        return {"status": "error", "message": f"Failed to cancel order: {str(e)}"}, 500
 
 
 def cancel_all_orders_api(data, auth):
     """
-    Cancel all open/pending orders.
-
-    Returns:
-        (canceled_orders, failed_cancellations) — two lists of order IDs
+    Cancel all open orders.
+    Evermore has no batch cancel — loops through orderbook and cancels each.
     """
-    order_book = get_order_book(auth)
+    AUTH_TOKEN = auth
+    order_book_response = get_order_book(AUTH_TOKEN)
 
-    # Extract orders list from response
-    orders = None
-    if isinstance(order_book, list):
-        orders = order_book
-    elif isinstance(order_book, dict):
-        orders = order_book.get("data", [])
+    if not order_book_response or order_book_response.get("status") == "error":
+        return [], []
 
+    orders = order_book_response.get("data", [])
     if not orders:
         return [], []
 
-    # Filter orders that can be cancelled (Submitted or EPEnding)
+    # Filter orders that are open/pending
     orders_to_cancel = [
         order for order in orders
-        if order.get("OrderStatus") in ("Submitted", "EPEnding")
+        if order.get("OrderStatus", "").lower() in ("submitted", "epending", "epending")
     ]
 
     canceled_orders = []
@@ -426,10 +399,60 @@ def cancel_all_orders_api(data, auth):
 
     for order in orders_to_cancel:
         orderid = str(order.get("IntOrdNo", ""))
-        cancel_response, status_code = cancel_order(orderid, auth)
-        if status_code == 200:
-            canceled_orders.append(orderid)
-        else:
-            failed_cancellations.append(orderid)
+        if orderid and orderid != "0":
+            cancel_response, status_code = cancel_order(orderid, AUTH_TOKEN)
+            if status_code == 200:
+                canceled_orders.append(orderid)
+            else:
+                failed_cancellations.append(orderid)
 
     return canceled_orders, failed_cancellations
+
+
+def close_all_positions(current_api_key, auth):
+    """
+    Close all open positions by placing reverse orders.
+    """
+    AUTH_TOKEN = auth
+    positions_response = get_positions(AUTH_TOKEN)
+
+    if not positions_response or not positions_response.get("data"):
+        return {"message": "No Open Positions Found"}, 200
+
+    position_list = positions_response["data"]
+    if isinstance(position_list, dict) and "net" in position_list:
+        position_list = position_list["net"]
+
+    if not position_list:
+        return {"message": "No Open Positions Found"}, 200
+
+    for position in position_list:
+        qty = int(float(position.get("Qty", 0)))
+        if qty == 0:
+            continue
+
+        action = "SELL" if qty > 0 else "BUY"
+        quantity = abs(qty)
+
+        token_no = str(position.get("TokenNo", ""))
+        exchange = reverse_map_exchange(position.get("Exchange", ""))
+
+        # Look up OA symbol
+        symbol = get_oa_symbol(token_no, exchange) if token_no else token_no
+
+        place_order_payload = {
+            "apikey": current_api_key,
+            "strategy": "Squareoff",
+            "symbol": symbol,
+            "action": action,
+            "exchange": exchange,
+            "pricetype": "MARKET",
+            "product": reverse_map_product_type(exchange, position.get("DeliveryType", 0)),
+            "quantity": str(quantity),
+        }
+
+        logger.info(f"Close position payload: {place_order_payload}")
+        _, api_response, _ = place_order_api(place_order_payload, AUTH_TOKEN)
+        logger.info(f"Close position response: {api_response}")
+
+    return {"status": "success", "message": "All Open Positions SquaredOff"}, 200
