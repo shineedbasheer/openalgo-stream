@@ -10,30 +10,26 @@ from utils.logging import get_logger
 logger = get_logger(__name__)
 
 
-def authenticate_broker(request_token):
+def authenticate_broker(login_id, password):
     """
     Authenticate with the Evermore (AutoTradeTech) broker API.
 
     Evermore uses a simple LoginId + Password authentication flow.
-    - LoginId comes from BROKER_API_KEY env var
-    - Password comes from BROKER_API_SECRET env var
-    - request_token is not used for OAuth (Evermore has no OAuth flow)
+    Credentials are provided by the user via the login form.
 
     Returns a JSON-encoded auth token containing UniqueId and RefNo.
     """
     try:
-        LOGIN_ID = os.getenv("BROKER_API_KEY")
-        PASSWORD = os.getenv("BROKER_API_SECRET")
         BASE_URL = os.getenv("EVERMORE_BASE_URL", "http://192.168.6.164:16006")
 
-        if not LOGIN_ID or not PASSWORD:
-            return None, "BROKER_API_KEY (LoginId) and BROKER_API_SECRET (Password) must be set in .env"
+        if not login_id or not password:
+            return None, "Login ID and Password are required"
 
         url = f"{BASE_URL}/api/PublicAPI/LoginRequest"
 
         payload = {
-            "LoginId": LOGIN_ID,
-            "Password": PASSWORD,
+            "LoginId": login_id,
+            "Password": password,
         }
 
         # Get the shared httpx client with connection pooling
@@ -57,7 +53,7 @@ def authenticate_broker(request_token):
                 auth_token = json.dumps({
                     "UniqueId": unique_id,
                     "RefNo": ref_no,
-                    "LoginId": LOGIN_ID,
+                    "LoginId": login_id,
                 })
                 return auth_token, None
             else:
