@@ -1,4 +1,4 @@
-import { AlertTriangle, ArrowLeft, ExternalLink, Loader2, Shield } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, Eye, EyeOff, Loader2, Shield } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -320,6 +320,7 @@ export default function BrokerTOTP() {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [formData, setFormData] = useState<Record<string, string>>({})
+  const [visiblePasswords, setVisiblePasswords] = useState<Record<string, boolean>>({})
 
   // Normalize broker name (handle 5paisa -> fivepaisa)
   const normalizedBroker = broker === '5paisa' ? 'fivepaisa' : broker
@@ -466,7 +467,11 @@ export default function BrokerTOTP() {
                     )}
                     <Input
                       id={field.name}
-                      type={field.type}
+                      type={
+                        field.type === 'password' && visiblePasswords[field.name]
+                          ? 'text'
+                          : field.type
+                      }
                       inputMode={field.inputMode}
                       placeholder={field.placeholder}
                       value={formData[field.name] || ''}
@@ -482,8 +487,27 @@ export default function BrokerTOTP() {
                             ? 'one-time-code'
                             : 'off'
                       }
-                      className={field.prefix ? 'pl-12' : ''}
+                      className={`${field.prefix ? 'pl-12' : ''} ${field.type === 'password' ? 'pr-10' : ''}`}
                     />
+                    {field.type === 'password' && (
+                      <button
+                        type="button"
+                        tabIndex={-1}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                        onClick={() =>
+                          setVisiblePasswords((prev) => ({
+                            ...prev,
+                            [field.name]: !prev[field.name],
+                          }))
+                        }
+                      >
+                        {visiblePasswords[field.name] ? (
+                          <EyeOff className="h-4 w-4" />
+                        ) : (
+                          <Eye className="h-4 w-4" />
+                        )}
+                      </button>
+                    )}
                   </div>
                   {field.hint && <p className="text-xs text-muted-foreground">{field.hint}</p>}
                 </div>
@@ -520,15 +544,6 @@ export default function BrokerTOTP() {
                   <ArrowLeft className="h-3 w-3" />
                   Back to Broker Selection
                 </Link>
-                <a
-                  href="https://docs.openalgo.in"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-primary hover:underline inline-flex items-center gap-1"
-                >
-                  Documentation
-                  <ExternalLink className="h-3 w-3" />
-                </a>
               </div>
             </div>
           </CardContent>
