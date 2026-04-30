@@ -63,3 +63,38 @@ frontend/docs/
 # Project docs (EXPLICITLY INCLUDED)
 !docs/
 !frontend/dist/
+
+# ── POC build artifacts and secrets ──────────────────────────────────────────
+# Exclude runtime state, secrets, and heavy dirs not needed inside the image
+poc/.env*
+!poc/.env.poc.template
+poc/executor/*
+!poc/executor/app.jar
+
+# Frontend source tree — only dist/ needed at runtime.
+# frontend-builder stage is omitted in poc Dockerfile (POC tradeoff #8) so
+# frontend/src/ and frontend/public/ are excluded from COPY context entirely.
+frontend/src/
+frontend/public/
+
+# Developer-only documentation dirs (not needed at runtime)
+evermoredocs/
+playground/
+
+# Heavy directories pruned for image size
+install/
+test/
+tmp/
+strategies/
+keys/
+
+# Batch files (Windows-only, not needed in Linux container)
+*.bat
+
+# Lock file (not needed at runtime; deps already in .venv)
+uv.lock
+
+# Docs (developer reference, not runtime)
+docs/
+CLAUDE.md
+*.md

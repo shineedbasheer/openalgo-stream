@@ -1,0 +1,126 @@
+# ============================================================================
+# Dockerfile.poc - Combined zenox-strategy-executor + openalgo-stream
+# ============================================================================
+# PRE-REQUISITE: Run zenox-strategy-executor/docker-build.sh first.
+#   That script builds the uber-jar and copies it to poc/executor/app.jar.
+# BUILD: docker build -f poc/Dockerfile.poc -t zenox-poc:latest .
+#   (run from openalgo-stream/ root)
+# ============================================================================
+
+# Stage 1: Python venv builder (matches openalgo-stream/Dockerfile python-builder stage)
+FROM python:3.11-bullseye AS python-builder
+# Force apt over HTTPS — some networks block port 80 egress from containers (POC #15)
+RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g; s|http://security.debian.org|https://security.debian.org|g' /etc/apt/sources.list && \
+    apt-get update && apt-get install -y --no-install-recommends \
+    curl build-essential && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+WORKDIR /app/openalgo
+COPY pyproject.toml .
+# Build venv at the SAME path it'll live at in the production stage so script
+# shebangs (gunicorn, etc.) resolve correctly after COPY --from=python-builder
+RUN pip install --no-cache-dir uv && \
+    uv venv --python /usr/local/bin/python3.11 .venv && \
+    uv pip install --upgrade pip && \
+    uv sync --no-dev --python .venv/bin/python && \
+    uv pip install --python .venv/bin/python "gunicorn" "eventlet>=0.40.3" && \
+    rm -rf /root/.cache /tmp/pip-* /tmp/uv-*
+
+# NOTE: frontend-builder stage is intentionally omitted for the POC.
+# The POC acceptance criteria are backend-only (Strategy Executor + 3 brokers +
+# openalgo streaming).  No compiled React dist is required.  Flask's Jinja2
+# templates continue to serve the traditional UI; hitting http://localhost:5000/
+# still returns HTTP 200 without the React SPA.  See POC-Mode Tradeoffs #8.
+# frontend/src/ and frontend/public/ are excluded from .dockerignore context
+# (saves ~3.5 MB COPY layer).  frontend/dist/ is omitted entirely.
+
+# Stage 3: Source prep — copies openalgo source then removes poc/executor/ so that
+# the executor jar (88 MB) is NOT present in the layer that the final stage receives.
+# Without this stage, "COPY . /app/openalgo/" includes poc/executor/app.jar even though
+# the jar is explicitly COPY'd separately — resulting in an 88 MB duplicate layer.
+FROM python:3.11-slim-bullseye AS source-prep
+WORKDIR /app/openalgo
+COPY . .
+# Remove executor dir: the jar is delivered by the explicit COPY in the final stage.
+# rm here collapses inside this intermediate stage; the final COPY --from sees the
+# cleaned tree and only brings across ~23 MB of source (not ~111 MB).
+RUN rm -rf poc/executor/
+
+# Stage 4: JRE extractor — copies only the JRE (~180 MB), avoids apt JRE in final image
+FROM eclipse-temurin:21-jre-jammy AS jre-provider
+# JRE available at /opt/java/openjdk for COPY --from
+
+# Stage 5: Final production image
+FROM python:3.11-slim-bullseye AS production
+
+# 0: system deps + IST timezone + supervisord
+# Force apt over HTTPS — some networks block port 80 egress from containers (POC #15)
+RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g; s|http://security.debian.org|https://security.debian.org|g' /etc/apt/sources.list && \
+    apt-get update && apt-get install -y --no-install-recommends \
+    tzdata \
+    curl \
+    libopenblas0 \
+    libgomp1 \
+    libgfortran5 \
+    supervisor && \
+    ln -fs /usr/share/zoneinfo/Asia/Kolkata /etc/localtime && \
+    dpkg-reconfigure -f noninteractive tzdata && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# 1: JRE from eclipse-temurin:21-jre-jammy
+ENV JAVA_HOME=/opt/java/21
+COPY --from=jre-provider /opt/java/openjdk "${JAVA_HOME}"
+ENV PATH="${JAVA_HOME}/bin:${PATH}"
+
+# 2: app directory structure
+RUN mkdir -p \
+    /app/openalgo \
+    /app/executor \
+    /app/logs \
+    /app/data/aeron \
+    /app/openalgo/db \
+    /app/openalgo/log \
+    /app/openalgo/log/strategies \
+    /app/openalgo/strategies \
+    /app/openalgo/strategies/scripts \
+    /app/openalgo/keys \
+    /app/openalgo/tmp \
+    /app/openalgo/tmp/numba_cache \
+    /app/openalgo/tmp/matplotlib && \
+    chmod 700 /app/openalgo/keys
+
+# 3: Python venv (gunicorn + eventlet included)
+COPY --from=python-builder /app/openalgo/.venv /app/openalgo/.venv
+
+# 4: openalgo-stream source — use source-prep stage (executor jar already removed)
+COPY --from=source-prep /app/openalgo/ /app/openalgo/
+
+# 5: React dist — OMITTED for POC (frontend-builder stage dropped; POC tradeoff #8)
+# Jinja2 templates still serve traditional UI at http://localhost:5000/
+
+# 6: executor uber-jar (pre-built by docker-build.sh; sourced from build context)
+COPY poc/executor/app.jar /app/executor/app.jar
+
+# 7: supervisord config + healthcheck
+COPY poc/supervisord.conf /etc/supervisor/conf.d/poc.conf
+COPY poc/healthcheck.sh /app/healthcheck.sh
+RUN chmod +x /app/healthcheck.sh
+
+# 8: runtime environment
+ENV PATH="/app/openalgo/.venv/bin:${JAVA_HOME}/bin:${PATH}" \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    TZ=Asia/Kolkata \
+    APP_MODE=standalone \
+    TMPDIR=/app/openalgo/tmp \
+    NUMBA_CACHE_DIR=/app/openalgo/tmp/numba_cache \
+    MPLCONFIGDIR=/app/openalgo/tmp/matplotlib
+
+# 9: ports
+EXPOSE 5000 7012 8765
+
+# 10: healthcheck
+HEALTHCHECK --interval=30s --timeout=15s --start-period=90s --retries=3 \
+    CMD /app/healthcheck.sh
+
+# 11: supervisord as PID 1
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/poc.conf"]
