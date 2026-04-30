@@ -198,22 +198,19 @@ docker compose -f poc/docker-compose.poc.yml down -v
 
 Estimated layer breakdown:
 
-| Layer | Size |
+| Layer | Size (measured) |
 |---|---|
-| python:3.12-slim-bullseye base | ~45 MB |
-| apt-get (tzdata, curl, libs, supervisor) | ~30 MB |
-| JRE from eclipse-temurin:21-jre-jammy | ~180 MB |
-| Python venv (uv sync --no-dev + gunicorn) | ~500-600 MB |
-| openalgo source (after .dockerignore) | ~15 MB |
-| React frontend/dist | ~8 MB |
-| executor uber-jar | ~88-180 MB |
+| python:3.11-slim-bullseye base | ~146 MB |
+| apt-get (tzdata, curl, libopenblas0, libgomp1, libgfortran5, supervisor) | ~93 MB |
+| JRE from eclipse-temurin:21-jre-jammy (COPY /opt/java/openjdk) | ~165 MB |
+| Python venv (uv sync --no-dev + gunicorn + eventlet) | ~870 MB |
+| openalgo source via source-prep stage | ~14 MB |
+| React frontend/dist | omitted (POC tradeoff #8) |
+| executor uber-jar | ~92 MB |
 | supervisord.conf + healthcheck | <1 MB |
-| **Total estimate** | **~870-1060 MB** |
+| **Total actual** | **1.84 GB** |
 
-Target: < 2000 MB. If image exceeds 1800 MB, apply in order:
-1. Add `numba`, `llvmlite`, `kaleido` to `.dockerignore` if strategies don't require them
-2. Add `scipy`, `plotly` if not needed
-3. Verify `install/`, `test/`, `docs/` are excluded via `.dockerignore`
+Target: < 2000 MB. **AC #1 satisfied.** Size optimized 2026-04-30 (was 2.02 GB).
 
 ---
 
@@ -252,14 +249,18 @@ The `REDIRECT_URL` in `.env.poc` must exactly match the redirect URI registered 
 
 ## Known Manual Steps Before Gate 4 (Testu)
 
-The Docker image build (`docker-build.sh`) was not executed in CI as Docker daemon was not available in the dev environment.
+Build and smoke validation completed locally 2026-04-30 on Docker Desktop (Windows). Image is reproducible end-to-end.
 
-**Manual verification required before Testu:**
-1. Run `bash zenox-strategy-executor/docker-build.sh` from a machine with Docker daemon
-2. Confirm image size < 2000 MB
-3. Run `docker compose -f poc/docker-compose.poc.yml --env-file poc/.env.poc up -d`
-4. Run the validation checklist above (Steps 4a-4d)
-5. Record actual observed startup times in this README (replace "30s JVM" with measured time)
+**Completed validation steps:**
+1. `bash zenox-strategy-executor/docker-build.sh` — executor uber-jar built + image built
+2. Image size confirmed: **1.84 GB** (< 2000 MB; AC #1 satisfied)
+3. `docker compose -f poc/docker-compose.poc.yml --env-file poc/.env.poc up -d` — container started
+4. Endpoint validation:
+   - `http://localhost:5000/` — HTTP 200
+   - `http://localhost:7012/` — HTTP 404 (executor root, correct)
+   - `http://localhost:7012/api/marketdata/tick` (POST) — HTTP 200 (tick accepted)
+   - `http://localhost:8765/` — HTTP 426 (WebSocket proxy, correct)
+5. No `UnsatisfiedLinkError`, `NoClassDefFoundError`, or `ImportError` in container logs.
 
 ---
 
@@ -276,6 +277,7 @@ These choices were made during local build-up validation on 2026-04-30. They are
 | 5 | `docker-compose.poc.yml` | Bind-mount `./.env.poc:/app/openalgo/.env:ro` | openalgo's startup validator reads `/app/openalgo/.env` from disk (not from process env), even when env vars are injected via `--env-file` | Production: bake env into image via secrets or materialize `/app/openalgo/.env` from env vars at startup |
 | 6 | `supervisord.conf` + new `run_openalgo.py` | openalgo launched via `python /app/openalgo/poc/run_openalgo.py` instead of gunicorn | gunicorn 25.x + eventlet has a known incompat (`Control server error: asyncio.run() cannot be called from a running event loop`); also Flask-SocketIO 5.x raises `RuntimeError: The Werkzeug web server is not designed to run in production` whenever `sys.stdin.isatty()` is False (always under supervisord) | Production: pin `gunicorn<23` and revert `[program:openalgo]` to `gunicorn --worker-class eventlet -w 1 app:app` |
 | 7 | `.env.poc` (gitignored, not committed) | `FLASK_ENV=development` + `EXECUTOR_MYSQL_USER=root` / `PASS=pass` | dev mode unblocks Werkzeug; root creds match the local `zenox-mysql` container | Production: dedicated MySQL user with least-privilege grants on `executor_poc` schema only; `FLASK_ENV=production` with proper WSGI |
+| 8 | `Dockerfile.poc` + `.dockerignore` | `frontend-builder` stage dropped; `frontend/src/` and `frontend/public/` excluded from build context; compiled React `dist/` not included | POC acceptance criteria are backend-only (Strategy Executor + 3 brokers + openalgo streaming). Flask's Jinja2 templates continue to serve `http://localhost:5000/` (HTTP 200). Dropping the builder eliminates a ~4 MB `frontend/dist` COPY layer and prevents `frontend/src/` (2.6 MB) from entering the source COPY layer. Root cause of image exceeding 2 GB was `poc/executor/app.jar` (88 MB) landing in the source COPY layer twice; the `source-prep` intermediate stage plus this exclusion resolves it. | Production: restore `frontend-builder` stage, remove `frontend/src/` and `frontend/public/` from `.dockerignore`, add `COPY --from=frontend-builder /app/frontend/dist /app/openalgo/frontend/dist` back |
 
 ### Build-up validation log (2026-04-30, local Docker Desktop)
 
@@ -287,10 +289,12 @@ Confirmed working endpoints:
 - `http://localhost:7012/api/marketdata/tick` (POST) → HTTP 400 on empty/bad body (endpoint registered)
 - `http://localhost:8765/` — WebSocket proxy → HTTP 426 Upgrade Required (correct WS server response)
 
-Image size: **2.02 GB** — currently 20 MB over the 2 GB acceptance ceiling. Optimization candidates for follow-up:
-- Prune broker `docs/` and `tests/` directories more aggressively in `.dockerignore`
-- Try `eclipse-temurin:21-jre-alpine` as JRE provider (musl + smaller libc) — verify executor compatibility first
-- Drop the `frontend-builder` stage if the React UI isn't required for POC validation (saves ~150 MB)
+Image size: **1.84 GB** (2.02 GB → 1.84 GB after size-optimization pass on 2026-04-30; saves 180 MB; AC #1 satisfied).
+
+Optimization summary:
+- Root cause: `poc/executor/app.jar` (88 MB) landed twice in the image — once via `COPY . /app/openalgo/` (because `.dockerignore` negation `!poc/executor/app.jar` re-included it) and once via the explicit `COPY poc/executor/app.jar /app/executor/app.jar`. Fix: added `source-prep` intermediate stage that copies the source tree then `rm -rf poc/executor/`; final stage uses `COPY --from=source-prep` which sees the cleaned filesystem.
+- Secondary: dropped `frontend-builder` stage (POC tradeoff #8) and excluded `frontend/src/` + `frontend/public/` from build context (saves ~7.5 MB additional).
+- Attempt 3 (alpine JRE) evaluated and skipped: `/opt/java/openjdk` directory is 157 MB in both `eclipse-temurin:21-jre-jammy` and `eclipse-temurin:21-jre-alpine` — same JDK content, no saving in the COPY layer.
 
 ---
 

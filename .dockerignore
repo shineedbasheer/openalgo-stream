@@ -71,6 +71,16 @@ poc/.env*
 poc/executor/*
 !poc/executor/app.jar
 
+# Frontend source tree — only dist/ needed at runtime.
+# frontend-builder stage is omitted in poc Dockerfile (POC tradeoff #8) so
+# frontend/src/ and frontend/public/ are excluded from COPY context entirely.
+frontend/src/
+frontend/public/
+
+# Developer-only documentation dirs (not needed at runtime)
+evermoredocs/
+playground/
+
 # Heavy directories pruned for image size
 install/
 test/
