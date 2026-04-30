@@ -1,6 +1,6 @@
 # ZenOx POC Docker Container
 
-Combined container image: **zenox-strategy-executor** (Java 21 / Quarkus) + **openalgo-stream** (Python 3.12 / Flask + WebSocket proxy).
+Combined container image: **zenox-strategy-executor** (Java 21 / Quarkus) + **openalgo-stream** (Python 3.11 / Flask + WebSocket proxy).
 
 Ticket: https://github.com/smarttouch-ai/zenox-trading-platform/issues/15
 
@@ -12,7 +12,7 @@ Ticket: https://github.com/smarttouch-ai/zenox-trading-platform/issues/15
 [supervisord PID 1]
   |
   +-- program:openalgo          priority=10  port 5000
-  |    gunicorn --worker-class eventlet --bind 0.0.0.0:5000
+  |    python /app/openalgo/poc/run_openalgo.py  (Flask dev server, see POC tradeoff #6)
   |
   +-- program:websocket-proxy   priority=10  port 8765
   |    python -m websocket_proxy.server (WEBSOCKET_HOST=0.0.0.0)
@@ -100,12 +100,13 @@ Container startup timeline:
 - `t=90s` — Docker HEALTHCHECK first probe fires
 
 ```bash
-# Check process status
-docker exec zenox-poc supervisorctl status
+# Check process status (supervisorctl requires a unix socket not configured in POC;
+# use /proc instead to verify all 3 processes are alive)
+docker exec zenox-poc sh -c "find /proc -maxdepth 2 -name cmdline 2>/dev/null | while read f; do cmd=\$(cat \$f 2>/dev/null | tr '\0' ' '); case \"\$cmd\" in *run_openalgo*|*websocket_proxy*|*app.jar*) echo RUNNING: \$cmd;; esac; done"
 # Expected:
-# openalgo          RUNNING   pid NNN, uptime 0:01:XX
-# websocket-proxy   RUNNING   pid NNN, uptime 0:01:XX
-# strategy-executor RUNNING   pid NNN, uptime 0:01:XX
+# RUNNING: /app/openalgo/.venv/bin/python /app/openalgo/poc/run_openalgo.py
+# RUNNING: /app/openalgo/.venv/bin/python -m websocket_proxy.server
+# RUNNING: java ... -jar /app/executor/app.jar
 
 # Check healthcheck
 docker inspect zenox-poc --format='{{.State.Health.Status}}'
@@ -115,9 +116,12 @@ docker inspect zenox-poc --format='{{.State.Health.Status}}'
 curl http://localhost:5000/auth/check-setup
 # Expected: HTTP 200
 
-# Check executor
-curl http://localhost:7012/health/ready
-# Expected: {"status":"UP",...}
+# Check executor (note: /health/ready requires SmallRye Health extension not in pom.xml;
+# use the marketdata tick endpoint instead — 200 means executor is alive)
+curl -X POST http://localhost:7012/api/marketdata/tick \
+  -H "Content-Type: application/json" \
+  -d '{"symbol":"probe","ltp":1.0,"timestamp":1,"tokenNumber":1}'
+# Expected: HTTP 200
 
 # Send a test tick
 curl -X POST http://localhost:7012/api/marketdata/tick \
