@@ -68,7 +68,8 @@ frontend/docs/
 # Exclude runtime state, secrets, and heavy dirs not needed inside the image
 poc/.env*
 !poc/.env.poc.template
-poc/executor/
+poc/executor/*
+!poc/executor/app.jar
 
 # Heavy directories pruned for image size
 install/
