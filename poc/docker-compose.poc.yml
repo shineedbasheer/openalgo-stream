@@ -24,6 +24,8 @@ services:
       - poc_strategies:/app/openalgo/strategies
       - poc_keys:/app/openalgo/keys
       - poc_tmp:/app/openalgo/tmp
+      # openalgo Flask reads /app/openalgo/.env at startup (not env vars alone)
+      - ./.env.poc:/app/openalgo/.env:ro
     # Linux: required for host.docker.internal resolution
     # Mac/Windows Docker Desktop: no-op (already resolved)
     extra_hosts:

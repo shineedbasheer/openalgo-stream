@@ -263,4 +263,35 @@ The Docker image build (`docker-build.sh`) was not executed in CI as Docker daem
 
 ---
 
+## POC-Mode Tradeoffs (deliberate; not for production)
+
+These choices were made during local build-up validation on 2026-04-30. They are **safe for a local POC** but **must be revisited before any production-style deployment**. Reviewu / Localu must audit these.
+
+| # | File | Choice | Why (POC) | Production must |
+|---|---|---|---|---|
+| 1 | `Dockerfile.poc` (both apt stages) | apt sources rewritten `http://deb.debian.org` → `https://deb.debian.org` via `sed` before `apt-get update` | Dev networks behind some firewalls/VPNs block port 80 egress from container bridge networks; HTTPS works because image pulls already use 443 | Keep — HTTPS mirror is strictly better; no downside |
+| 2 | `Dockerfile.poc` python-builder + production stages | Bumped both base images from `python:3.12-…` to `python:3.11-…` | openalgo's `pyproject.toml` has `requires-python = "==3.11.*"` (strict). 3.12 caused uv to install its own bundled 3.11 at a path that doesn't exist in the slim final stage → venv resolves to a missing interpreter | Keep until openalgo upstream lifts the version pin |
+| 3 | `Dockerfile.poc` python-builder | `WORKDIR /app/openalgo` (was `/app`) so the venv is built at the same absolute path it lives at in the final image | uv bakes absolute interpreter paths into venv script shebangs (`gunicorn`, `pip`, …). When the venv is built at `/app/.venv` and copied to `/app/openalgo/.venv`, every script's shebang points to a non-existent path | Keep |
+| 4 | `application-poc.properties` (executor) | Added `marketdata.udp.network-interface=lo` and `marketdata.udp.interface-address=0.0.0.0` | Quarkus build-time validation of `@ConfigProperty` String fields requires the values to exist even when Aeron is set to `aeron:ipc` mode (no UDP) | Production should set real interface (e.g. `em1`) |
+| 5 | `docker-compose.poc.yml` | Bind-mount `./.env.poc:/app/openalgo/.env:ro` | openalgo's startup validator reads `/app/openalgo/.env` from disk (not from process env), even when env vars are injected via `--env-file` | Production: bake env into image via secrets or materialize `/app/openalgo/.env` from env vars at startup |
+| 6 | `supervisord.conf` + new `run_openalgo.py` | openalgo launched via `python /app/openalgo/poc/run_openalgo.py` instead of gunicorn | gunicorn 25.x + eventlet has a known incompat (`Control server error: asyncio.run() cannot be called from a running event loop`); also Flask-SocketIO 5.x raises `RuntimeError: The Werkzeug web server is not designed to run in production` whenever `sys.stdin.isatty()` is False (always under supervisord) | Production: pin `gunicorn<23` and revert `[program:openalgo]` to `gunicorn --worker-class eventlet -w 1 app:app` |
+| 7 | `.env.poc` (gitignored, not committed) | `FLASK_ENV=development` + `EXECUTOR_MYSQL_USER=root` / `PASS=pass` | dev mode unblocks Werkzeug; root creds match the local `zenox-mysql` container | Production: dedicated MySQL user with least-privilege grants on `executor_poc` schema only; `FLASK_ENV=production` with proper WSGI |
+
+### Build-up validation log (2026-04-30, local Docker Desktop)
+
+The first attempt to bring up the POC found **6 latent bugs** in Stage 3b's committed files plus **1 environmental issue**. All bugs are now fixed in the feature branch; the environmental issue (apt port-80 egress) is mitigated by the HTTPS mirror swap above.
+
+Confirmed working endpoints:
+- `http://localhost:5000/` — openalgo Flask UI/API → HTTP 200
+- `http://localhost:7012/` — Quarkus executor → HTTP 404 (correct: `/` is unmapped, real routes work)
+- `http://localhost:7012/api/marketdata/tick` (POST) → HTTP 400 on empty/bad body (endpoint registered)
+- `http://localhost:8765/` — WebSocket proxy → HTTP 426 Upgrade Required (correct WS server response)
+
+Image size: **2.02 GB** — currently 20 MB over the 2 GB acceptance ceiling. Optimization candidates for follow-up:
+- Prune broker `docs/` and `tests/` directories more aggressively in `.dockerignore`
+- Try `eclipse-temurin:21-jre-alpine` as JRE provider (musl + smaller libc) — verify executor compatibility first
+- Drop the `frontend-builder` stage if the React UI isn't required for POC validation (saves ~150 MB)
+
+---
+
 *Devu — Stage 3b | Phase 3 | 2026-04-30*
