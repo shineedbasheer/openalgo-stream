@@ -1,0 +1,51 @@
+# =============================================================================
+# docker-compose.poc.yml -- POC local development
+# Usage:
+#   cp poc/.env.poc.template poc/.env.poc
+#   # Edit poc/.env.poc with your values (at minimum: APP_KEY, API_KEY_PEPPER,
+#   #   BROKER_API_KEY, BROKER_API_SECRET, EXECUTOR_MYSQL_PASS)
+#   docker compose -f poc/docker-compose.poc.yml --env-file poc/.env.poc up
+# =============================================================================
+version: "3.9"
+
+services:
+  zenox-poc:
+    image: zenox-poc:latest
+    container_name: zenox-poc
+    ports:
+      - "5000:5000"    # openalgo Flask UI + REST API
+      - "7012:7012"    # strategy-executor (tick ingest + health)
+      - "8765:8765"    # WebSocket proxy
+    env_file:
+      - .env.poc
+    volumes:
+      - poc_db:/app/openalgo/db
+      - poc_logs:/app/logs
+      - poc_strategies:/app/openalgo/strategies
+      - poc_keys:/app/openalgo/keys
+      - poc_tmp:/app/openalgo/tmp
+    # Linux: required for host.docker.internal resolution
+    # Mac/Windows Docker Desktop: no-op (already resolved)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # Required for scipy/numba shared memory (matches openalgo-stream/docker-compose.yaml)
+    shm_size: "2gb"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/app/healthcheck.sh"]
+      interval: 30s
+      timeout: 15s
+      start_period: 90s
+      retries: 3
+
+volumes:
+  poc_db:
+    driver: local
+  poc_logs:
+    driver: local
+  poc_strategies:
+    driver: local
+  poc_keys:
+    driver: local
+  poc_tmp:
+    driver: local

@@ -1,0 +1,108 @@
+# ============================================================================
+# Dockerfile.poc - Combined zenox-strategy-executor + openalgo-stream
+# ============================================================================
+# PRE-REQUISITE: Run zenox-strategy-executor/docker-build.sh first.
+#   That script builds the uber-jar and copies it to poc/executor/app.jar.
+# BUILD: docker build -f poc/Dockerfile.poc -t zenox-poc:latest .
+#   (run from openalgo-stream/ root)
+# ============================================================================
+
+# Stage 1: Python venv builder (matches openalgo-stream/Dockerfile python-builder stage)
+FROM python:3.12-bullseye AS python-builder
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl build-essential && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY pyproject.toml .
+RUN pip install --no-cache-dir uv && \
+    uv venv .venv && \
+    uv pip install --upgrade pip && \
+    uv sync --no-dev && \
+    uv pip install "gunicorn" "eventlet>=0.40.3" && \
+    rm -rf /root/.cache /tmp/pip-* /tmp/uv-*
+
+# Stage 2: React frontend builder (matches openalgo-stream/Dockerfile frontend-builder stage)
+FROM node:20-bullseye-slim AS frontend-builder
+WORKDIR /app
+COPY frontend/package*.json ./frontend/
+RUN cd frontend && npm ci --prefer-offline
+COPY frontend/ ./frontend/
+RUN cd frontend && npm run build
+
+# Stage 3: JRE extractor — copies only the JRE (~180 MB), avoids apt JRE in final image
+FROM eclipse-temurin:21-jre-jammy AS jre-provider
+# JRE available at /opt/java/openjdk for COPY --from
+
+# Stage 4: Final production image
+FROM python:3.12-slim-bullseye AS production
+
+# 0: system deps + IST timezone + supervisord
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    tzdata \
+    curl \
+    libopenblas0 \
+    libgomp1 \
+    libgfortran5 \
+    supervisor && \
+    ln -fs /usr/share/zoneinfo/Asia/Kolkata /etc/localtime && \
+    dpkg-reconfigure -f noninteractive tzdata && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# 1: JRE from eclipse-temurin:21-jre-jammy
+ENV JAVA_HOME=/opt/java/21
+COPY --from=jre-provider /opt/java/openjdk "${JAVA_HOME}"
+ENV PATH="${JAVA_HOME}/bin:${PATH}"
+
+# 2: app directory structure
+RUN mkdir -p \
+    /app/openalgo \
+    /app/executor \
+    /app/logs \
+    /app/data/aeron \
+    /app/openalgo/db \
+    /app/openalgo/log \
+    /app/openalgo/log/strategies \
+    /app/openalgo/strategies \
+    /app/openalgo/strategies/scripts \
+    /app/openalgo/keys \
+    /app/openalgo/tmp \
+    /app/openalgo/tmp/numba_cache \
+    /app/openalgo/tmp/matplotlib && \
+    chmod 700 /app/openalgo/keys
+
+# 3: Python venv (gunicorn + eventlet included)
+COPY --from=python-builder /app/.venv /app/openalgo/.venv
+
+# 4: openalgo-stream source (.dockerignore prunes test/, docs/, log/, etc.)
+COPY . /app/openalgo/
+
+# 5: React dist
+COPY --from=frontend-builder /app/frontend/dist /app/openalgo/frontend/dist
+
+# 6: executor uber-jar (pre-built by docker-build.sh)
+COPY poc/executor/app.jar /app/executor/app.jar
+
+# 7: supervisord config + healthcheck
+COPY poc/supervisord.conf /etc/supervisor/conf.d/poc.conf
+COPY poc/healthcheck.sh /app/healthcheck.sh
+RUN chmod +x /app/healthcheck.sh
+
+# 8: runtime environment
+ENV PATH="/app/openalgo/.venv/bin:${JAVA_HOME}/bin:${PATH}" \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    TZ=Asia/Kolkata \
+    APP_MODE=standalone \
+    TMPDIR=/app/openalgo/tmp \
+    NUMBA_CACHE_DIR=/app/openalgo/tmp/numba_cache \
+    MPLCONFIGDIR=/app/openalgo/tmp/matplotlib
+
+# 9: ports
+EXPOSE 5000 7012 8765
+
+# 10: healthcheck
+HEALTHCHECK --interval=30s --timeout=15s --start-period=90s --retries=3 \
+    CMD /app/healthcheck.sh
+
+# 11: supervisord as PID 1
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/poc.conf"]

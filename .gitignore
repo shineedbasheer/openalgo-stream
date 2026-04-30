@@ -77,3 +77,6 @@ yarn-error.log*
 
 # Windows NUL file
 nul
+# POC build artifacts
+poc/executor/
+poc/.env.poc
